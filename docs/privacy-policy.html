@@ -3,188 +3,337 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy - Hermes Agent</title>
+    <meta name="description" content="Privacy Policy for PayNux Agent, an Android AI gateway application.">
+    <title>Privacy Policy - PayNux Agent</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { box-sizing: border-box; }
         body {
+            margin: 0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
             line-height: 1.7;
-            color: #1a1a2e;
-            background: #f8f9fa;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 24px;
+            color: #242424;
+            background: #f5f6f8;
         }
         header {
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-            color: #fff;
-            padding: 48px 24px;
+            padding: 42px 20px;
             text-align: center;
+            color: white;
+            background: #202b45;
         }
-        header h1 {
-            font-size: 2rem;
-            margin-bottom: 8px;
-        }
-        header p {
-            opacity: 0.8;
-            font-size: 1rem;
+        header h1 { margin: 0 0 8px; }
+        header p { margin: 0; opacity: .85; }
+        main {
+            max-width: 850px;
+            margin: 32px auto;
+            padding: 32px;
+            background: white;
+            border-radius: 10px;
         }
         h2 {
-            color: #302b63;
-            margin: 32px 0 12px;
-            font-size: 1.3rem;
-            border-bottom: 2px solid #e0e0e0;
+            margin-top: 30px;
             padding-bottom: 6px;
+            color: #202b45;
+            border-bottom: 1px solid #ddd;
         }
-        p, li {
-            margin-bottom: 12px;
-            color: #333;
-        }
-        ul {
-            padding-left: 24px;
-            margin-bottom: 16px;
-        }
-        .highlight {
-            background: #e8f5e9;
-            border-left: 4px solid #4caf50;
-            padding: 16px 20px;
-            border-radius: 4px;
-            margin: 20px 0;
-        }
-        .highlight strong {
-            color: #2e7d32;
-        }
-        .contact-box {
-            background: #fff;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
-        }
-        .contact-box a {
-            color: #302b63;
+        li { margin-bottom: 8px; }
+        a { color: #2459a6; overflow-wrap: anywhere; }
+        .notice {
+            padding: 16px;
+            background: #eef3fb;
+            border-left: 4px solid #4169a1;
         }
         footer {
+            padding: 24px;
             text-align: center;
-            padding: 32px 24px;
-            color: #888;
-            font-size: 0.9rem;
+            color: #666;
         }
-        footer a {
-            color: #302b63;
-            text-decoration: none;
+        @media (max-width: 600px) {
+            main { margin: 12px; padding: 20px; }
         }
     </style>
 </head>
 <body>
-
 <header>
-    <h1>Hermes Agent - Privacy Policy</h1>
-    <p>Last updated: February 10, 2026</p>
+    <h1>PayNux Agent Privacy Policy</h1>
+    <p>Last updated: November 17, 2026</p>
 </header>
 
-<div class="container">
-
-    <div class="highlight">
-        <strong>Summary:</strong> Hermes Agent does not collect, store, transmit, or share any personal data. Everything runs locally on your device.
+<main>
+    <div class="notice">
+        <strong>Privacy summary:</strong>
+        PayNux Agent runs an AI gateway environment on your Android device.
+        It stores application settings and gateway configuration locally,
+        but it also makes network connections for installation, updates,
+        and AI services. Information you send to an AI provider is handled
+        under that provider's terms and privacy policy.
     </div>
 
     <h2>1. Introduction</h2>
     <p>
-        Hermes Agent ("the App") is an open-source Android application developed by Mithun Gowda B / Hermes Agent Mobile.
-        The App sets up a local AI gateway environment on your Android device using proot and provides
-        a native interface to manage it. This privacy policy explains how the App handles your data.
+        PayNux Agent ("the App") is an open-source Android application
+        maintained by PaijoAhmad under the PayNux project.
+        It provides a native interface for managing an Ubuntu environment
+        through PRoot and running Hermes Agent as its underlying AI gateway engine.
+    </p>
+    <p>
+        This policy explains what information the App stores, how network
+        connections are used, and what happens when you configure and use
+        external AI services.
     </p>
 
-    <h2>2. Data Collection</h2>
-    <p><strong>We do not collect any data.</strong> Specifically, the App does not collect:</p>
+    <h2>2. Information Stored on Your Device</h2>
+    <p>The App stores information locally to provide its functionality, including:</p>
     <ul>
-        <li>Personal information (name, email, phone number, etc.)</li>
-        <li>Device identifiers or advertising IDs</li>
-        <li>Location data</li>
-        <li>Usage analytics or telemetry</li>
-        <li>Crash reports</li>
-        <li>Browsing history</li>
-        <li>Contacts, photos, or media</li>
+        <li>
+            <strong>Application preferences:</strong>
+            Setup status, gateway preferences, dashboard settings,
+            and other application configuration stored through Android
+            SharedPreferences.
+        </li>
+        <li>
+            <strong>Gateway and Node credentials:</strong>
+            Gateway tokens and Node-related configuration stored in
+            Android SharedPreferences.
+        </li>
+        <li>
+            <strong>Hermes configuration:</strong>
+            AI provider settings and other configuration stored in the
+            Ubuntu environment, including files under the Hermes
+            configuration directory.
+        </li>
+        <li>
+            <strong>Ubuntu environment:</strong>
+            The Ubuntu root filesystem, installed packages, Hermes Agent
+            source code, and runtime files.
+        </li>
+        <li>
+            <strong>Logs:</strong>
+            Gateway and terminal output displayed by the App.
+        </li>
     </ul>
+    <p>
+        SharedPreferences and files in the Ubuntu environment should not
+        be assumed to be encrypted by the App. Protect access to your
+        device and its application data.
+    </p>
 
-    <h2>3. Local Data Storage</h2>
-    <p>The App stores the following data <strong>locally on your device only</strong>:</p>
-    <ul>
-        <li><strong>Ubuntu rootfs:</strong> A Linux environment downloaded from official Ubuntu servers (cdimage.ubuntu.com)</li>
-        <li><strong>Node.js:</strong> Downloaded from official Node.js servers (nodejs.org)</li>
-        <li><strong>App preferences:</strong> Settings such as auto-start preference, stored via Android SharedPreferences</li>
-        <li><strong>Gateway token URL:</strong> Your local authentication token for the AI gateway dashboard, stored on-device only</li>
-        <li><strong>API keys:</strong> Any API keys you configure during onboarding are stored locally within the proot Ubuntu environment on your device</li>
-    </ul>
-    <p>None of this data is transmitted to us or any third party.</p>
+    <h2>3. Configuration Backups</h2>
+    <p>
+        The App provides a snapshot export and import feature.
+        A snapshot may contain the contents of the Hermes configuration
+        file, including API keys, access tokens, provider settings,
+        and other sensitive configuration if present.
+    </p>
+    <p>
+        Depending on storage permission and Android storage availability,
+        snapshots may be written to the Download directory as
+        <code>paynux-snapshot.json</code>, or to the App's documents directory.
+        Version migration may also create a file named
+        <code>hermes-snapshot-[version].json</code>.
+    </p>
+    <p>
+        Snapshot files are not encrypted by the App. Anyone who obtains
+        access to an exported snapshot may be able to read its contents.
+        Store backup files securely and delete them when they are no longer
+        needed. Do not share snapshots publicly.
+    </p>
 
-    <h2>4. Network Usage</h2>
-    <p>The App uses the INTERNET permission for the following purposes only:</p>
+    <h2>4. Network Connections and Data Transmission</h2>
+    <p>
+        The App requires network access for installation and AI gateway
+        functionality. Depending on the features you use, connections
+        may include:
+    </p>
     <ul>
-        <li><strong>Initial setup:</strong> Downloading Ubuntu rootfs and Node.js binaries from their official servers</li>
-        <li><strong>Local gateway:</strong> Communicating with the AI gateway running on localhost (127.0.0.1:18789)</li>
-        <li><strong>AI API calls:</strong> When you use the gateway, it connects to AI provider APIs (e.g., Google Gemini, OpenAI, Anthropic) using the API keys you provide. These connections are made directly from your device to the respective API providers</li>
+        <li>
+            <strong>Ubuntu downloads:</strong>
+            Ubuntu root filesystem archives are downloaded from
+            <code>cdimage.ubuntu.com</code>.
+        </li>
+        <li>
+            <strong>Hermes Agent source:</strong>
+            The setup process clones the upstream repository from
+            <code>github.com/nousresearch/hermes-agent</code>.
+        </li>
+        <li>
+            <strong>Package installation:</strong>
+            Ubuntu APT repositories and Python package sources are contacted
+            to download required software and dependencies.
+        </li>
+        <li>
+            <strong>PayNux repository:</strong>
+            The project's GitHub repository and release services may be
+            accessed when you open project links or use release-related
+            functionality.
+        </li>
+        <li>
+            <strong>Local gateway:</strong>
+            The App communicates with its local gateway at
+            <code>127.0.0.1:18789</code>.
+        </li>
+        <li>
+            <strong>AI providers:</strong>
+            When you use an AI provider through Hermes Agent, prompts,
+            conversation content, configured credentials, and related
+            request information may be transmitted to that provider
+            to process your requests.
+        </li>
     </ul>
-    <p>The App does not connect to any analytics, tracking, or advertising services.</p>
+    <p>
+        The destination and content of AI requests depend on the provider
+        and configuration you choose. The App developer does not control
+        the data handling practices of external providers.
+    </p>
 
     <h2>5. Third-Party Services</h2>
     <p>
-        The App itself does not integrate any third-party SDKs, analytics, or advertising frameworks.
-        When using the AI gateway, your device communicates directly with the AI providers whose API keys you configure.
-        Please refer to those providers' privacy policies for how they handle API requests:
+        PayNux Agent uses upstream software and external infrastructure
+        to provide its functionality. These services may receive network
+        requests from your device or the Ubuntu environment.
+        Their own privacy policies and terms apply to information they process.
     </p>
     <ul>
-        <li>Google Gemini: <a href="https://ai.google.dev/terms">Google AI Terms</a></li>
-        <li>OpenAI: <a href="https://openai.com/privacy">OpenAI Privacy Policy</a></li>
-        <li>Anthropic: <a href="https://www.anthropic.com/privacy">Anthropic Privacy Policy</a></li>
+        <li>
+            Ubuntu:
+            <a href="https://ubuntu.com/legal/data-privacy">
+                Ubuntu Privacy Policy
+            </a>
+        </li>
+        <li>
+            GitHub:
+            <a href="https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement">
+                GitHub Privacy Statement
+            </a>
+        </li>
+        <li>
+            OpenAI:
+            <a href="https://openai.com/policies/privacy-policy/">
+                OpenAI Privacy Policy
+            </a>
+        </li>
+        <li>
+            Google:
+            <a href="https://policies.google.com/privacy">
+                Google Privacy Policy
+            </a>
+        </li>
+        <li>
+            Anthropic:
+            <a href="https://www.anthropic.com/privacy">
+                Anthropic Privacy Policy
+            </a>
+        </li>
     </ul>
+    <p>
+        These are examples of external services. The actual providers
+        contacted depend on your Hermes Agent configuration.
+    </p>
 
-    <h2>6. Permissions</h2>
-    <p>The App requests the following Android permissions, all used for local functionality only:</p>
+    <h2>6. Analytics, Advertising, and Developer Collection</h2>
+    <p>
+        The application components reviewed for this policy do not show
+        an integration with a dedicated advertising or analytics SDK.
+        The reviewed gateway socket check connects to the local loopback
+        address to determine whether the gateway port is already in use.
+    </p>
+    <p>
+        The reviewed application code does not identify a PayNux-operated
+        remote endpoint for receiving AI conversations. This does not
+        establish that external services never collect connection metadata
+        or other information. Ubuntu repositories, GitHub, package sources,
+        and configured AI providers may process information under their
+        respective privacy policies.
+    </p>
+
+    <h2>7. Android Permissions</h2>
+    <p>The App requests Android permissions for the following purposes:</p>
     <ul>
-        <li><strong>INTERNET:</strong> Download setup files and run the local gateway</li>
-        <li><strong>FOREGROUND_SERVICE:</strong> Keep the gateway running in the background</li>
-        <li><strong>POST_NOTIFICATIONS:</strong> Show setup progress and gateway status notifications</li>
-        <li><strong>WAKE_LOCK:</strong> Prevent the CPU from sleeping during setup</li>
-        <li><strong>REQUEST_IGNORE_BATTERY_OPTIMIZATIONS:</strong> Allow the user to disable battery optimization for uninterrupted gateway operation</li>
+        <li><strong>INTERNET:</strong> Download installation files and access configured external services.</li>
+        <li><strong>FOREGROUND_SERVICE:</strong> Run setup and gateway services in the foreground.</li>
+        <li><strong>FOREGROUND_SERVICE_SPECIAL_USE:</strong> Support declared foreground service functionality.</li>
+        <li><strong>POST_NOTIFICATIONS:</strong> Display setup progress and gateway notifications.</li>
+        <li><strong>WAKE_LOCK:</strong> Keep required work running while the device is awake or performing setup.</li>
+        <li><strong>REQUEST_IGNORE_BATTERY_OPTIMIZATIONS:</strong> Allow the user to request exemption from battery optimization for ongoing gateway operation.</li>
+        <li><strong>VIBRATE:</strong> Provide vibration feedback where used.</li>
+        <li><strong>READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE:</strong> Support shared storage access on applicable older Android versions.</li>
+        <li><strong>MANAGE_EXTERNAL_STORAGE:</strong> Support the terminal's shared storage integration where the user grants this special access.</li>
     </ul>
-
-    <h2>7. Children's Privacy</h2>
     <p>
-        The App is not directed at children under 13. We do not knowingly collect any information
-        from anyone, including children.
+        Storage access is used for terminal access to shared Android files
+        and for importing or exporting snapshots. Android may require the
+        user to grant special access explicitly.
     </p>
 
-    <h2>8. Open Source</h2>
+    <h2>8. Data Security and Retention</h2>
     <p>
-        Hermes Agent is fully open source under the MIT License. You can inspect the entire source code
-        to verify our privacy practices at:
-        <a href="https://github.com/Binair-Dev/HermesAgentMobile">github.com/Binair-Dev/HermesAgentMobile</a>
+        Application preferences, credentials, and configuration are stored
+        on the device according to the App's implementation and Android
+        storage behavior. The App does not claim that all locally stored
+        credentials or exported files are encrypted.
+    </p>
+    <p>
+        You are responsible for protecting your device, reviewing the
+        contents of exported snapshots, securing API keys, and revoking
+        credentials that may have been exposed.
+    </p>
+    <p>
+        Removing the App may not automatically delete files that you
+        previously exported to shared storage.
     </p>
 
-    <h2>9. Changes to This Policy</h2>
+    <h2>9. Children's Privacy</h2>
     <p>
-        If we update this privacy policy, the changes will be posted on this page with an updated
-        "Last updated" date. As the App does not collect any data, significant changes are unlikely.
+        PayNux Agent is not directed at children under the age of 13.
+        The App is a technical tool that requires users to configure
+        external services and credentials.
     </p>
 
-    <h2>10. Contact</h2>
-    <div class="contact-box">
-        <p><strong>Mithun Gowda B</strong> / Hermes Agent Mobile</p>
-        <p>Email: <a href="mailto:mithungowda.b7411@gmail.com">mithungowda.b7411@gmail.com</a></p>
-        <p>Email: <a href="mailto:van.bellinghen.brian@gmail.com">van.bellinghen.brian@gmail.com</a></p>
-        <p>GitHub: <a href="https://github.com/nousresearch">@nousresearch</a></p>
-    </div>
+    <h2>10. Open Source</h2>
+    <p>
+        PayNux Agent source code is available at:
+        <a href="https://github.com/pay/PayNux-Agent">
+            github.com/pay/PayNux-Agent
+        </a>
+    </p>
+    <p>
+        The project uses Hermes Agent as its underlying engine.
+        Upstream source:
+        <a href="https://github.com/NousResearch/hermes-agent">
+            github.com/NousResearch/hermes-agent
+        </a>
+    </p>
+    <p>
+        Refer to the repository's LICENSE file for applicable license terms.
+    </p>
 
-</div>
+    <h2>11. Changes to This Policy</h2>
+    <p>
+        This policy may be updated when application functionality,
+        integrations, or data practices change. The latest version
+        will be published in the PayNux Agent repository with an updated
+        revision date.
+    </p>
+
+    <h2>12. Contact</h2>
+    <p>
+        For questions about this policy or PayNux Agent, contact:
+    </p>
+    <p>
+        <strong>Developer:</strong> PaijoAhmad<br>
+        <strong>Project:</strong> PayNux<br>
+        <strong>Email:</strong>
+        <a href="mailto:paijo.ahmad@jabber.ru">
+            paijo.ahmad@jabber.ru
+        </a><br>
+        <strong>Repository:</strong>
+        <a href="https://github.com/pay/PayNux-Agent">
+            PayNux Agent on GitHub
+        </a>
+    </p>
+</main>
 
 <footer>
-    <p>&copy; 2026 Mithun Gowda B | <a href="https://github.com/nousresearch">Hermes Agent Mobile</a></p>
-    <p style="margin-top: 8px;"><a href="https://github.com/Binair-Dev/HermesAgentMobile">Hermes Agent on GitHub</a></p>
+    &copy; 2026 PayNux Agent · PaijoAhmad
 </footer>
-
 </body>
 </html>
