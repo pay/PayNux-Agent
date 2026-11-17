@@ -6,13 +6,13 @@ class AppConstants {
   /// Matches ANSI escape sequences (e.g. color codes in terminal output).
   static final ansiEscape = RegExp(r'\x1b\[[0-9;]*[a-zA-Z]');
 
-  static const String authorName = 'B_nair';
+  static const String authorName = 'PaijoAhmad';
   static const String authorEmail = 'paijo.ahmad@jabber.ru';
   static const String githubUrl = 'https://github.com/pay/PayNux-Agent.git';
   static const String license = 'MIT';
 
   static const String githubApiLatestRelease =
-      'https://api.github.com/repos/Binair-Dev/HermesAgentMobile/releases/latest';
+      'https://api.github.com/repos/pay/PayNux-Agent/releases/latest';
 
   static const String orgName = 'PayNux';
   static const String orgEmail = 'paijo.ahmad@jabber.ru';

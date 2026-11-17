@@ -177,7 +177,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 ListTile(
                   title: const Text('GitHub'),
-                  subtitle: const Text('nousresearch/hermes-agent-mobile'),
+                  subtitle: const Text('pay/PayNux-Agent'),
                   leading: const Icon(Icons.code),
                   trailing: const Icon(Icons.open_in_new, size: 18),
                   onTap: () => launchUrl(
