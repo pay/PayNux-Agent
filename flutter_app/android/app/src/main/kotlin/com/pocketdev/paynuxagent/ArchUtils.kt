@@ -1,4 +1,4 @@
-package com.nxg.hermesagentmobile
+package com.pocketdev.paynuxagent
 
 import android.os.Build
 

@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app.dart';
-import '../constants.dart';
 import '../models/setup_state.dart';
 import '../providers/setup_provider.dart';
 import '../widgets/progress_step.dart';
@@ -33,14 +31,36 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 32),
-                  Image.asset(
-                    'assets/ic_launcher.png',
-                    width: 64,
-                    height: 64,
+                  Container(
+                    width: 76,
+                    height: 76,
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF151B23),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFFDC2626),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFDC2626).withValues(alpha: 0.18),
+                          blurRadius: 18,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(15),
+                      child: Image.asset(
+                        'assets/ic_launcher.png',
+                        fit: BoxFit.contain,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Setup Hermes Agent',
+                    'Setup PayNux Agent',
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -49,7 +69,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   Text(
                     _started
                         ? 'Setting up the environment. This may take several minutes.'
-                        : 'This will download Ubuntu, Python, and Hermes Agent into a self-contained environment.',
+                        : 'Prepare your PayNux environment with Ubuntu, Python, and the Hermes engine.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -123,7 +143,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   const SizedBox(height: 16),
                   Center(
                     child: Text(
-                      'by ${AppConstants.authorName} | ${AppConstants.orgName}',
+                      'PAYNUX AGENT  •  POWERED BY HERMES',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -143,7 +163,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       (1, 'Download Ubuntu rootfs', SetupStep.downloadingRootfs),
       (2, 'Extract rootfs', SetupStep.extractingRootfs),
       (3, 'Install Python', SetupStep.installingPython),
-      (4, 'Install Hermes Agent', SetupStep.installingHermesAgent),
+      (4, 'Install Hermes Engine', SetupStep.installingHermesAgent),
       (5, 'Configure environment', SetupStep.configuringEnvironment),
     ];
 

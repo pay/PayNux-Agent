@@ -1,4 +1,4 @@
-package com.nxg.hermesagentmobile
+package com.pocketdev.paynuxagent
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -634,6 +634,36 @@ class BootstrapManager(
                 }
             }
         }
+    }
+
+    /**
+     * Register Android supplementary GIDs so groups can resolve them.
+     * Safe to run repeatedly on an already-installed rootfs.
+     */
+    fun registerMissingAndroidGroups() {
+        val groupFile = File("$rootfsDir/etc/group")
+        if (!groupFile.exists()) return
+
+        // Repair literal escaped newlines from the previous implementation.
+        val normalized = groupFile.readText().replace("\\n", "\n")
+        val lines = normalized.lines()
+            .filter { it.isNotBlank() }
+            .toMutableList()
+
+        val androidGids = listOf(1077, 3003, 9997, 20409, 50409)
+
+        for (gid in androidGids) {
+            val exists = lines.any {
+                it.split(":").getOrNull(2)?.toIntOrNull() == gid
+            }
+            if (exists) continue
+
+            val name = "android_gid_$gid"
+            lines.add("$name:x:$gid:")
+        }
+
+        groupFile.setWritable(true, false)
+        groupFile.writeText(lines.joinToString("\n", postfix = "\n"))
     }
 
     private fun deleteRecursively(file: File) {

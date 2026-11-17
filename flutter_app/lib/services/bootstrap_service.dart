@@ -165,8 +165,13 @@ class BootstrapService {
       ));
       await NativeBridge.runInProot(
         'cd /root && '
-        'rm -rf hermes-agent && '
-        'git clone https://github.com/nousresearch/hermes-agent.git hermes-agent',
+        'rm -rf hermes-agent.clone.tmp && '
+        'GIT_TERMINAL_PROMPT=0 git clone --depth 1 --progress '
+        'https://github.com/nousresearch/hermes-agent.git hermes-agent.clone.tmp && '
+        'if [ -d hermes-agent ]; then mv hermes-agent hermes-agent.previous; fi && '
+        'if mv hermes-agent.clone.tmp hermes-agent; then '
+        'rm -rf hermes-agent.previous; '
+        'else [ ! -d hermes-agent.previous ] || mv hermes-agent.previous hermes-agent; exit 1; fi',
         timeout: 600,
       );
 
@@ -178,10 +183,9 @@ class BootstrapService {
       ));
       await NativeBridge.runInProot(
         'cd /root/hermes-agent && '
-        'python3 -m venv venv && '
-        'source venv/bin/activate && '
-        'pip install --upgrade pip && '
-        'pip install -r requirements.txt',
+        'grep -q UV_LINK_MODE pm/index_config.py || '
+        'sed -i \'/FORWARDED_UV_SETTINGS[[:space:]]*=/a\\    "UV_LINK_MODE",\' pm/index_config.py && '
+        'UV_LINK_MODE=copy ./setup-hermes.sh --runtime-only',
         timeout: 1800,
       );
 

@@ -58,7 +58,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.initState();
     _terminal = Terminal(maxLines: 10000);
     _controller = TerminalController();
-    NativeBridge.startTerminalService();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startOnboarding();
     });
@@ -68,8 +67,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _pty?.kill();
     _pty = null;
     try {
-      try { await NativeBridge.setupDirs(); } catch (_) {}
-      try { await NativeBridge.writeResolv(); } catch (_) {}
+      try {
+        await NativeBridge.setupDirs();
+      } catch (_) {}
+      try {
+        await NativeBridge.writeResolv();
+      } catch (_) {}
       try {
         final filesDir = await NativeBridge.getFilesDir();
         const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
@@ -95,13 +98,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onboardingArgs.removeLast();
       onboardingArgs.removeLast();
       onboardingArgs.addAll([
-        '/bin/bash', '-lc',
+        '/bin/bash',
+        '-lc',
         'echo "=== Hermes Agent Onboarding ===" && '
-        'echo "Configure your API keys and binding settings." && '
-        'echo "TIP: Select Loopback (127.0.0.1) when asked for binding!" && '
-        'echo "" && '
-        'cd /root/hermes-agent && source venv/bin/activate && python -m hermes_cli.main setup; '
-        'echo "" && echo "Onboarding complete! You can close this screen."',
+            'echo "Configure your API keys and binding settings." && '
+            'echo "TIP: Select Loopback (127.0.0.1) when asked for binding!" && '
+            'echo "" && '
+            'if cd /root/hermes-agent && export UV_LINK_MODE=copy && source ./activate && python -m hermes_cli.main setup; then '
+            'echo "" && echo "Onboarding complete! You can close this screen."; '
+            'else status=\$?; echo "" && echo "Onboarding failed (exit code \$status)."; exit "\$status"; fi',
       ]);
 
       _pty = Pty.start(
@@ -166,7 +171,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _altNotifier.dispose();
     _controller.dispose();
     _pty?.kill();
-    NativeBridge.stopTerminalService();
     super.dispose();
   }
 
@@ -189,7 +193,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   String? _extractUrl(String text) {
-    final clean = text.replaceAll(_boxDrawing, '').replaceAll(RegExp(r'\s+'), '');
+    final clean =
+        text.replaceAll(_boxDrawing, '').replaceAll(RegExp(r'\s+'), '');
     final parts = clean.split(RegExp(r'(?=https?://)'));
     String? best;
     for (final part in parts) {
@@ -216,7 +221,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             label: 'Open',
             onPressed: () {
               final uri = Uri.tryParse(url);
-              if (uri != null) launchUrl(uri, mode: LaunchMode.externalApplication);
+              if (uri != null) {
+                launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
             },
           ),
         ),
@@ -316,7 +323,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ],
       ),
     );
-    if (shouldOpen == true) await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (shouldOpen == true) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   Future<void> _goToDashboard() async {
@@ -336,7 +345,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Hermes Agent Onboarding'),
+        backgroundColor: const Color(0xFF11181F),
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('PayNux Agent Setup'),
         leading: widget.isFirstRun
             ? null
             : IconButton(
@@ -394,7 +407,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       Text(
                         _error!,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error),
                       ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
@@ -420,16 +434,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 _terminal,
                 controller: _controller,
                 onTapUp: _handleTap,
-                  textStyle: const TerminalStyle(
-                    fontSize: 11,
-                    height: 1.0,
-                    fontFamily: 'DejaVuSansMono',
-                    fontFamilyFallback: _fontFallback,
-                  ),
+                textStyle: const TerminalStyle(
+                  fontSize: 11,
+                  height: 1.0,
+                  fontFamily: 'DejaVuSansMono',
+                  fontFamilyFallback: _fontFallback,
                 ),
+              ),
             ),
             TerminalToolbar(
-              pty: _pty,
+              getPty: () => _pty,
               ctrlNotifier: _ctrlNotifier,
               altNotifier: _altNotifier,
             ),

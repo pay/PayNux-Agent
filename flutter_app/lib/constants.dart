@@ -1,21 +1,21 @@
 class AppConstants {
-  static const String appName = 'Hermes Agent';
+  static const String appName = 'PayNux Agent';
   static const String version = '0.2.4';
-  static const String packageName = 'com.nxg.hermesagentmobile';
+  static const String packageName = 'com.pocketdev.paynuxagent';
 
   /// Matches ANSI escape sequences (e.g. color codes in terminal output).
   static final ansiEscape = RegExp(r'\x1b\[[0-9;]*[a-zA-Z]');
 
-  static const String authorName='B_nair';
-  static const String authorEmail='van.bellinghen.brian@gmail.com';
-  static const String githubUrl = 'https://github.com/Binair-Dev/HermesAgentMobile';
+  static const String authorName = 'B_nair';
+  static const String authorEmail = 'paijo.ahmad@jabber.ru';
+  static const String githubUrl = 'https://github.com/pay/PayNux-Agent.git';
   static const String license = 'MIT';
 
   static const String githubApiLatestRelease =
       'https://api.github.com/repos/Binair-Dev/HermesAgentMobile/releases/latest';
 
-  static const String orgName = 'Hermes Agent Mobile';
-  static const String orgEmail = 'van.bellinghen.brian@gmail.com';
+  static const String orgName = 'PayNux';
+  static const String orgEmail = 'paijo.ahmad@jabber.ru';
 
   static const String gatewayHost = '127.0.0.1';
   static const int gatewayPort = 18789;
@@ -30,8 +30,9 @@ class AppConstants {
   static const int healthCheckIntervalMs = 5000;
   static const int maxAutoRestarts = 5;
 
-  static const String channelName = 'com.nxg.hermesagentmobile/native';
-  static const String eventChannelName = 'com.nxg.hermesagentmobile/gateway_logs';
+  static const String channelName = 'com.pocketdev.paynuxagent/native';
+  static const String eventChannelName =
+      'com.pocketdev.paynuxagent/gateway_logs';
 
   static String getRootfsUrl(String arch) {
     switch (arch) {

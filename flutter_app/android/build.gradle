@@ -28,6 +28,15 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects { p ->
+    p.plugins.withId("com.android.library") {
+        p.android.ndkVersion = "29.0.14206865"
+    }
+    p.plugins.withId("com.android.application") {
+        p.android.ndkVersion = "29.0.14206865"
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }

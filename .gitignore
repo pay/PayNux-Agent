@@ -11,3 +11,34 @@ coverage/
 flutter_app/android/key.properties
 *.jks
 *.keystore
+
+# Flutter generated files
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+flutter_app/.packages
+flutter_app/.pub/
+flutter_app/build/
+
+# Android generated files
+flutter_app/android/.gradle/
+flutter_app/android/.kotlin/
+flutter_app/android/local.properties
+flutter_app/android/**/build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Temporary files and backups
+*.bak
+*.before-*
+*.tmp
+flutter_app/1
+flutter_app/nux-storage-test
+flutter_app/widget.altNotifier.value
+flutter_app/widget.ctrlNotifier.value
+
+# Separate PRoot build repository
+/proot-static-build/

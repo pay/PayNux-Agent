@@ -1,4 +1,4 @@
-package com.nxg.hermesagentmobile
+package com.pocketdev.paynuxagent
 
 import android.os.Build
 import android.os.Environment
@@ -248,12 +248,6 @@ class ProcessManager(
         val env = prootEnv()
 
         val pb = ProcessBuilder(cmd)
-        // CRITICAL: Clear inherited Android JVM environment.
-        // Without this, LD_PRELOAD, CLASSPATH, DEX2OAT vars leak into
-        // proot and break fork+exec. proot-distro uses `env -i` on the
-        // guest side AND runs from a clean Termux shell on the host side.
-        // We must explicitly clear() since Android's ProcessBuilder
-        // inherits the full JVM environment.
         pb.environment().clear()
         pb.environment().putAll(env)
         pb.redirectErrorStream(true)
@@ -261,44 +255,73 @@ class ProcessManager(
         val process = pb.start()
         val output = StringBuilder()
         val errorLines = StringBuilder()
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
 
-        var line: String?
-        while (reader.readLine().also { line = it } != null) {
-            val l = line ?: continue
-            if (l.contains("proot warning") || l.contains("can't sanitize")) {
-                continue
+        val readerThread = Thread {
+            try {
+                BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        val l = line ?: continue
+                        if (l.contains("proot warning") || l.contains("can't sanitize")) {
+                            continue
+                        }
+                        synchronized(output) {
+                            output.appendLine(l)
+                            if (!l.startsWith("Get:") && !l.startsWith("Fetched ") &&
+                                !l.startsWith("Hit:") && !l.startsWith("Ign:") &&
+                                !l.contains(" kB]") && !l.contains(" MB]") &&
+                                !l.startsWith("Reading package") &&
+                                !l.startsWith("Building dependency") &&
+                                !l.startsWith("Reading state") &&
+                                !l.startsWith("The following") &&
+                                !l.startsWith("Need to get") &&
+                                !l.startsWith("After this") && l.trim().isNotEmpty()) {
+                                errorLines.appendLine(l)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // Process may close the stream on timeout.
             }
-            output.appendLine(l)
-            // Collect error-relevant lines (skip apt download noise)
-            if (!l.startsWith("Get:") && !l.startsWith("Fetched ") &&
-                !l.startsWith("Hit:") && !l.startsWith("Ign:") &&
-                !l.contains(" kB]") && !l.contains(" MB]") &&
-                !l.startsWith("Reading package") && !l.startsWith("Building dependency") &&
-                !l.startsWith("Reading state") && !l.startsWith("The following") &&
-                !l.startsWith("Need to get") && !l.startsWith("After this") &&
-                l.trim().isNotEmpty()) {
-                errorLines.appendLine(l)
-            }
+        }.apply {
+            name = "ProotOutputReader"
+            isDaemon = true
+            start()
         }
 
-        val exited = process.waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+        val exited = process.waitFor(
+            timeoutSeconds,
+            java.util.concurrent.TimeUnit.SECONDS
+        )
+
         if (!exited) {
             process.destroyForcibly()
-            throw RuntimeException("Command timed out after ${timeoutSeconds}s")
+            process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            try { process.inputStream.close() } catch (_: Exception) {}
+            readerThread.join(2000)
+            val tail = synchronized(output) { output.toString().takeLast(2000) }
+            throw RuntimeException(
+                "Command timed out after ${timeoutSeconds}s. Output: $tail"
+            )
         }
+
+        readerThread.join(5000)
+        try { process.inputStream.close() } catch (_: Exception) {}
 
         val exitCode = process.exitValue()
         if (exitCode != 0) {
-            val errorOutput = errorLines.toString().takeLast(3000).ifEmpty {
-                output.toString().takeLast(3000)
+            val errorOutput = synchronized(output) {
+                errorLines.toString().takeLast(3000).ifEmpty {
+                    output.toString().takeLast(3000)
+                }
             }
             throw RuntimeException(
                 "Command failed (exit code $exitCode): $errorOutput"
             )
         }
 
-        return output.toString()
+        return synchronized(output) { output.toString() }
     }
 
     // ================================================================

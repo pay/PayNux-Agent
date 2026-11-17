@@ -60,7 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text('Settings'), centerTitle: false),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -132,7 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   leading: const Icon(Icons.code),
                 ),
                 ListTile(
-                  title: const Text('Hermes Agent'),
+                  title: const Text('Hermes Engine'),
                   subtitle: Text(_status['hermesInstalled'] == true
                       ? 'Installed'
                       : 'Not installed'),
@@ -168,9 +168,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(),
                 _sectionHeader(theme, 'ABOUT'),
                 const ListTile(
-                  title: Text('Hermes Agent'),
+                  title: Text('PayNux Agent'),
                   subtitle: Text(
-                    'AI Gateway for Android\nVersion ${AppConstants.version}',
+                    'PayNux Agent • Powered by Hermes\nVersion ${AppConstants.version}',
                   ),
                   leading: Icon(Icons.info_outline),
                   isThreeLine: true,
@@ -212,10 +212,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!await downloadDir.exists()) {
         await downloadDir.create(recursive: true);
       }
-      return '$sdcard/Download/hermes-snapshot.json';
+      return '$sdcard/Download/paynux-snapshot.json';
     }
     final dir = await getApplicationDocumentsDirectory();
-    return '${dir.path}/hermes-snapshot.json';
+    return '${dir.path}/paynux-snapshot.json';
   }
 
   Future<void> _exportSnapshot() async {

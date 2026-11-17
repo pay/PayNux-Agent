@@ -1,13 +1,12 @@
-import 'dart:convert';
-import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
-import 'package:flutter_pty/flutter_pty.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../services/native_bridge.dart';
-import '../services/terminal_service.dart';
 import '../widgets/terminal_toolbar.dart';
+import '../services/terminal_manager.dart';
+import '../services/native_bridge.dart';
 
 class TerminalScreen extends StatefulWidget {
   const TerminalScreen({super.key});
@@ -16,14 +15,44 @@ class TerminalScreen extends StatefulWidget {
   State<TerminalScreen> createState() => _TerminalScreenState();
 }
 
-class _TerminalScreenState extends State<TerminalScreen> {
-  late final Terminal _terminal;
-  late final TerminalController _controller;
-  Pty? _pty;
-  bool _loading = true;
-  String? _error;
-  final _ctrlNotifier = ValueNotifier<bool>(false);
-  final _altNotifier = ValueNotifier<bool>(false);
+class _TerminalScreenState extends State<TerminalScreen>
+    with WidgetsBindingObserver {
+  late final TerminalManager _manager;
+  final Map<int, TerminalController> _controllers = {};
+  final Map<int, FocusNode> _focusNodes = {};
+  final Map<int, GlobalKey<TerminalViewState>> _viewKeys = {};
+
+  TerminalSession get _active => _manager.activeSession;
+
+  TerminalController get _controller =>
+      _controllers.putIfAbsent(_active.id, TerminalController.new);
+
+  FocusNode get _terminalFocusNode =>
+      _focusNodes.putIfAbsent(_active.id, FocusNode.new);
+
+  GlobalKey<TerminalViewState> get _terminalViewKey => _viewKeys.putIfAbsent(
+        _active.id,
+        () => GlobalKey<TerminalViewState>(),
+      );
+
+  void _syncSessionWidgets() {
+    final ids = _manager.sessions.map((s) => s.id).toSet();
+    for (final id in _controllers.keys.toList()) {
+      if (!ids.contains(id)) {
+        _controllers.remove(id)?.dispose();
+        _focusNodes.remove(id)?.dispose();
+        _viewKeys.remove(id);
+      }
+    }
+    for (final session in _manager.sessions) {
+      _controllers.putIfAbsent(session.id, TerminalController.new);
+      _focusNodes.putIfAbsent(session.id, FocusNode.new);
+      _viewKeys.putIfAbsent(
+        session.id,
+        () => GlobalKey<TerminalViewState>(),
+      );
+    }
+  }
 
   static final _anyUrlRegex = RegExp(r'https?://[^\s<>\[\]"' "'" r'\)]+');
   static final _boxDrawing = RegExp(r'[│┤├┬┴┼╮╯╰╭─╌╴╶┌┐└┘◇◆]+');
@@ -43,116 +72,88 @@ class _TerminalScreenState extends State<TerminalScreen> {
   @override
   void initState() {
     super.initState();
-    _terminal = Terminal(maxLines: 10000);
-    _controller = TerminalController();
-    NativeBridge.startTerminalService();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(WakelockPlus.enable());
+
+    _manager = TerminalManager.instance;
+    _syncSessionWidgets();
+    _manager.addListener(_onManagerChanged);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startShell();
+      _manager.startShell();
     });
   }
 
-  Future<void> _startShell() async {
-    _pty?.kill();
-    _pty = null;
-    try {
-      try { await NativeBridge.setupDirs(); } catch (_) {}
-      try { await NativeBridge.writeResolv(); } catch (_) {}
-      try {
-        final filesDir = await NativeBridge.getFilesDir();
-        const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
-        final resolvFile = File('$filesDir/config/resolv.conf');
-        if (!resolvFile.existsSync()) {
-          Directory('$filesDir/config').createSync(recursive: true);
-          resolvFile.writeAsStringSync(resolvContent);
-        }
-        final rootfsResolv = File('$filesDir/rootfs/ubuntu/etc/resolv.conf');
-        if (!rootfsResolv.existsSync()) {
-          rootfsResolv.parent.createSync(recursive: true);
-          rootfsResolv.writeAsStringSync(resolvContent);
-        }
-      } catch (_) {}
-      final config = await TerminalService.getProotShellConfig();
-      final args = TerminalService.buildProotArgs(
-        config,
-        columns: _terminal.viewWidth,
-        rows: _terminal.viewHeight,
-      );
-
-      _pty = Pty.start(
-        config['executable']!,
-        arguments: args,
-        environment: TerminalService.buildHostEnv(config),
-        columns: _terminal.viewWidth,
-        rows: _terminal.viewHeight,
-      );
-
-      _pty!.output.cast<List<int>>().listen((data) {
-        _terminal.write(utf8.decode(data, allowMalformed: true));
-      });
-
-      _pty!.exitCode.then((code) {
-        _terminal.write('\r\n[Shell exited with code $code]\r\n');
-      });
-
-      _terminal.onOutput = (data) {
-        if (_ctrlNotifier.value && data.length == 1) {
-          final code = data.toLowerCase().codeUnitAt(0);
-          if (code >= 97 && code <= 122) {
-            _pty?.write(Uint8List.fromList([code - 96]));
-            _ctrlNotifier.value = false;
-            return;
-          }
-        }
-        if (_altNotifier.value && data.isNotEmpty) {
-          _pty?.write(utf8.encode('\x1b$data'));
-          _altNotifier.value = false;
-          return;
-        }
-        _pty?.write(utf8.encode(data));
-      };
-
-      _terminal.onResize = (w, h, pw, ph) {
-        _pty?.resize(h, w);
-      };
-
-      setState(() => _loading = false);
-    } catch (e) {
-      setState(() {
-        _loading = false;
-        _error = 'Failed to start shell: $e';
-      });
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(WakelockPlus.enable());
+      unawaited(NativeBridge.stopTerminalService());
+    } else if (state == AppLifecycleState.paused) {
+      unawaited(WakelockPlus.disable());
+      if (_manager.sessions.any((session) => session.isRunning)) {
+        unawaited(NativeBridge.startTerminalService());
+      }
+    } else if (state == AppLifecycleState.detached) {
+      unawaited(WakelockPlus.disable());
     }
+  }
+
+  void _onManagerChanged() {
+    if (!mounted) return;
+    _syncSessionWidgets();
+    setState(() {});
   }
 
   @override
   void dispose() {
-    _ctrlNotifier.dispose();
-    _altNotifier.dispose();
-    _controller.dispose();
-    _pty?.kill();
-    NativeBridge.stopTerminalService();
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(WakelockPlus.disable());
+    unawaited(NativeBridge.stopTerminalService());
+    _manager.removeListener(_onManagerChanged);
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    for (final focus in _focusNodes.values) {
+      focus.dispose();
+    }
+
+    // PTY dan Terminal dimiliki TerminalManager.
+    // Jangan kill shell atau stop foreground service di sini.
     super.dispose();
   }
 
   String? _getSelectedText() {
     final selection = _controller.selection;
     if (selection == null || selection.isCollapsed) return null;
-    final range = selection.normalized;
-    final sb = StringBuffer();
-    for (int y = range.begin.y; y <= range.end.y; y++) {
-      if (y >= _terminal.buffer.lines.length) break;
-      final line = _terminal.buffer.lines[y];
-      final from = (y == range.begin.y) ? range.begin.x : 0;
-      final to = (y == range.end.y) ? range.end.x : null;
-      sb.write(line.getText(from, to));
-      if (y < range.end.y) sb.writeln();
-    }
-    final text = sb.toString().trim();
+
+    final text = _active.terminal.buffer.getText(selection).trim();
     return text.isEmpty ? null : text;
   }
 
+  void _showKeyboard() {
+    _terminalFocusNode.requestFocus();
+    _terminalViewKey.currentState?.requestKeyboard();
+  }
+
+  Future<void> _copyAll() async {
+    final text = _active.terminal.buffer.getText();
+    if (text.trim().isEmpty) return;
+
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('All terminal logs copied'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
   String? _extractUrl(String text) {
-    final clean = text.replaceAll(_boxDrawing, '').replaceAll(RegExp(r'\s+'), '');
+    final clean =
+        text.replaceAll(_boxDrawing, '').replaceAll(RegExp(r'\s+'), '');
     final parts = clean.split(RegExp(r'(?=https?://)'));
     String? best;
     for (final part in parts) {
@@ -163,35 +164,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
       }
     }
     return best;
-  }
-
-  void _copySelection() {
-    final text = _getSelectedText();
-    if (text == null) return;
-    Clipboard.setData(ClipboardData(text: text));
-    final url = _extractUrl(text);
-    if (url != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Copied to clipboard'),
-          duration: const Duration(seconds: 3),
-          action: SnackBarAction(
-            label: 'Open',
-            onPressed: () {
-              final uri = Uri.tryParse(url);
-              if (uri != null) launchUrl(uri, mode: LaunchMode.externalApplication);
-            },
-          ),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Copied to clipboard'),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    }
   }
 
   void _openSelection() {
@@ -216,15 +188,114 @@ class _TerminalScreenState extends State<TerminalScreen> {
   Future<void> _paste() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     if (data?.text != null && data!.text!.isNotEmpty) {
-      _pty?.write(utf8.encode(data.text!));
+      _manager.writeInput(data.text!);
     }
+  }
+
+  Widget _buildSessionTabs() {
+    return Container(
+      height: 14,
+      color: const Color(0xFF11181F),
+      padding: const EdgeInsets.symmetric(horizontal: 7),
+      child: Row(
+        children: [
+          for (final session in _manager.sessions)
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _manager.selectSession(session.id),
+                onLongPress: () {
+                  if (_manager.sessions.length > 1) {
+                    _manager.closeSession(session.id);
+                  }
+                },
+                child: Center(
+                  child: Container(
+                    height: 3,
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: session.id == _active.id
+                          ? const Color(0xFFEF4444)
+                          : const Color(0xFF475569),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          SizedBox(
+            width: 25,
+            height: 14,
+            child: IconButton(
+              tooltip: 'New session',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => _manager.createSession(),
+              icon: const Icon(
+                Icons.add,
+                size: 17,
+                color: Color(0xFF38BDF8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF0B0F14),
       appBar: AppBar(
-        title: const Text('Terminal'),
+        backgroundColor: const Color(0xFF11181F),
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        toolbarHeight: 62,
+        titleSpacing: 4,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Terminal',
+              style: TextStyle(
+                fontSize: 16,
+                height: 1.2,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFF8FAFC),
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _manager.isRunning
+                        ? const Color(0xFF4ADE80)
+                        : const Color(0xFFF59E0B),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _manager.isRunning
+                      ? 'UBUNTU  •  CONNECTED'
+                      : 'UBUNTU  •  STARTING',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    letterSpacing: 1.1,
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
@@ -232,25 +303,73 @@ class _TerminalScreenState extends State<TerminalScreen> {
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.copy),
-            tooltip: 'Copy',
-            onPressed: _copySelection,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            padding: EdgeInsets.zero,
+            icon: const Icon(Icons.keyboard_alt_outlined,
+                size: 20, color: Color(0xFF38BDF8)),
+            tooltip: 'Show keyboard',
+            onPressed: _showKeyboard,
           ),
           IconButton(
-            icon: const Icon(Icons.open_in_browser),
-            tooltip: 'Open URL',
-            onPressed: _openSelection,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            padding: EdgeInsets.zero,
+            icon: const Icon(Icons.copy_all_rounded,
+                size: 19, color: Color(0xFF4ADE80)),
+            tooltip: 'Copy all logs',
+            onPressed: _copyAll,
           ),
-          IconButton(
-            icon: const Icon(Icons.paste),
-            tooltip: 'Paste',
-            onPressed: _paste,
+          PopupMenuButton<String>(
+            tooltip: 'Terminal actions',
+            icon: const Icon(Icons.more_vert, color: Color(0xFFCBD5E1)),
+            color: const Color(0xFF1B2532),
+            onSelected: (value) {
+              switch (value) {
+                case 'open':
+                  _openSelection();
+                case 'clear':
+                  _manager.clearTerminal();
+                case 'paste':
+                  _paste();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'paste',
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.content_paste, color: Color(0xFF38BDF8)),
+                  title: Text('Paste'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'open',
+                child: ListTile(
+                  dense: true,
+                  leading:
+                      Icon(Icons.open_in_browser, color: Color(0xFFA78BFA)),
+                  title: Text('Open selected URL'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'clear',
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.delete_sweep_outlined,
+                      color: Color(0xFFFB7185)),
+                  title: Text('Clear terminal'),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
         children: [
-          if (_loading)
+          _buildSessionTabs(),
+          if (_active.loading)
             const Expanded(
               child: Center(
                 child: Column(
@@ -263,7 +382,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 ),
               ),
             )
-          else if (_error != null)
+          else if (_active.error != null)
             Expanded(
               child: Center(
                 child: Padding(
@@ -278,18 +397,15 @@ class _TerminalScreenState extends State<TerminalScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        _error!,
+                        _active.error!,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error),
                       ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
                         onPressed: () {
-                          setState(() {
-                            _loading = true;
-                            _error = null;
-                          });
-                          _startShell();
+                          _manager.startShell(_active);
                         },
                         icon: const Icon(Icons.refresh),
                         label: const Text('Retry'),
@@ -301,21 +417,34 @@ class _TerminalScreenState extends State<TerminalScreen> {
             )
           else ...[
             Expanded(
-              child: TerminalView(
-                _terminal,
-                controller: _controller,
-                textStyle: const TerminalStyle(
-                  fontSize: 11,
-                  height: 1.0,
-                  fontFamily: 'DejaVuSansMono',
-                  fontFamilyFallback: _fontFallback,
+              child: Container(
+                color: const Color(0xFF0B0F14),
+                padding: const EdgeInsets.fromLTRB(7, 5, 7, 3),
+                child: TerminalView(
+                  _active.terminal,
+                  key: _terminalViewKey,
+                  controller: _controller,
+                  focusNode: _terminalFocusNode,
+                  autofocus: true,
+                  keyboardType: TextInputType.multiline,
+                  textStyle: const TerminalStyle(
+                    fontSize: 13,
+                    height: 1.15,
+                    fontFamily: 'DejaVuSansMono',
+                    fontFamilyFallback: _fontFallback,
+                  ),
+                  padding: const EdgeInsets.all(5),
                 ),
               ),
             ),
             TerminalToolbar(
-              pty: _pty,
-              ctrlNotifier: _ctrlNotifier,
-              altNotifier: _altNotifier,
+              key: ValueKey('toolbar-${_active.id}'),
+              getPty: () => _active.pty,
+              ctrlNotifier: _active.ctrlNotifier,
+              altNotifier: _active.altNotifier,
+              onClose: _manager.sessions.length > 1
+                  ? () => _manager.closeSession(_active.id)
+                  : null,
             ),
           ],
         ],

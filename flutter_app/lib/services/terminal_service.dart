@@ -21,11 +21,16 @@ class TerminalService {
   /// this method, so it's the single place to guarantee the files exist.
   static Future<Map<String, String>> getProotShellConfig() async {
     // Ensure dirs + resolv.conf exist before any proot operation (#40).
-    try { await NativeBridge.setupDirs(); } catch (_) {}
-    try { await NativeBridge.writeResolv(); } catch (_) {}
+    try {
+      await NativeBridge.setupDirs();
+    } catch (_) {}
+    try {
+      await NativeBridge.writeResolv();
+    } catch (_) {}
 
     final filesDir = await _channel.invokeMethod<String>('getFilesDir') ?? '';
-    final nativeLibDir = await _channel.invokeMethod<String>('getNativeLibDir') ?? '';
+    final nativeLibDir =
+        await _channel.invokeMethod<String>('getNativeLibDir') ?? '';
 
     final rootfsDir = '$filesDir/rootfs/ubuntu';
     final tmpDir = '$filesDir/tmp';
@@ -54,6 +59,12 @@ class TerminalService {
     } catch (_) {}
 
     final storageGranted = await NativeBridge.hasStoragePermission();
+    var storagePath = '';
+    if (storageGranted) {
+      try {
+        storagePath = await NativeBridge.getExternalStoragePath();
+      } catch (_) {}
+    }
 
     return {
       'executable': prootPath,
@@ -64,6 +75,7 @@ class TerminalService {
       'libDir': libDir,
       'nativeLibDir': nativeLibDir,
       'storageGranted': storageGranted.toString(),
+      'storagePath': storagePath,
       // Host-side proot env — ONLY proot-specific vars.
       // Do NOT set PROOT_NO_SECCOMP (proot-distro doesn't set it).
       // Do NOT set HOME/TERM/LANG here (those go in guest env via env -i).
@@ -132,10 +144,11 @@ class TerminalService {
     ];
 
     // Bind-mount shared storage if permission is granted (Termux-style)
-    if (config['storageGranted'] == 'true') {
+    final storagePath = config['storagePath'] ?? '';
+    if (config['storageGranted'] == 'true' && storagePath.isNotEmpty) {
       args.addAll([
         '--bind=/storage:/storage',
-        '--bind=/storage/emulated/0:/sdcard',
+        '--bind=$storagePath:/sdcard',
       ]);
     }
 
@@ -147,7 +160,7 @@ class TerminalService {
       'HOME=/root',
       'USER=root',
       'LANG=C.UTF-8',
-      'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      'PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       'TERM=xterm-256color',
       'TMPDIR=/tmp',
       'COLUMNS=$columns',

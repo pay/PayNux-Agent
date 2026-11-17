@@ -13,8 +13,6 @@ android/key.properties
 *.jks
 *.keystore
 
-# PRoot binaries (fetched by script, not committed)
-android/app/src/main/jniLibs/
 
 # IDE
 .idea/

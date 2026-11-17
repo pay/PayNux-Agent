@@ -13,10 +13,10 @@ class AppColors {
   static const Color accent = Color(0xFFDC2626);
 
   // Dark mode
-  static const Color darkBg = Color(0xFF0A0A0A);
-  static const Color darkSurface = Color(0xFF121212);
-  static const Color darkSurfaceAlt = Color(0xFF1A1A1A);
-  static const Color darkBorder = Color(0xFF2A2A2A);
+  static const Color darkBg = Color(0xFF0B0F14);
+  static const Color darkSurface = Color(0xFF151B23);
+  static const Color darkSurfaceAlt = Color(0xFF1E1E1E);
+  static const Color darkBorder = Color(0xFF374151);
 
   // Light mode
   static const Color lightBg = Color(0xFFFFFFFF);
@@ -44,7 +44,7 @@ class HermesAgentApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => GatewayProvider()),
       ],
       child: MaterialApp(
-        title: 'Hermes Agent',
+        title: 'PayNux Agent',
         debugShowCheckedModeBanner: false,
         theme: _buildLightTheme(),
         darkTheme: _buildDarkTheme(),

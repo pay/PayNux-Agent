@@ -1,4 +1,4 @@
-package com.nxg.hermesagentmobile
+package com.pocketdev.paynuxagent
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -21,7 +21,7 @@ import java.net.Socket
 
 class GatewayService : Service() {
     companion object {
-        const val CHANNEL_ID = "hermes_gateway"
+        const val CHANNEL_ID = "paynux_gateway"
         const val NOTIFICATION_ID = 1
         var isRunning = false
             private set
@@ -214,7 +214,7 @@ class GatewayService : Service() {
                 synchronized(lock) {
                     if (stopping) return@Thread
                     processStartTime = System.currentTimeMillis()
-                    gatewayProcess = pm.startProotProcess("cd /root/hermes-agent && source venv/bin/activate && exec python gateway/run.py")
+                    gatewayProcess = pm.startProotProcess("cd /root/hermes-agent && export UV_LINK_MODE=copy && exec scripts/run-in-hermes-env python gateway/run.py")
                 }
                 updateNotificationRunning()
                 emitLog("[INFO] Gateway process spawned")
@@ -435,7 +435,7 @@ class GatewayService : Service() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
-            "Hermes Agent::GatewayWakeLock"
+            "PayNux Agent::GatewayWakeLock"
         )
         wakeLock?.acquire(24 * 60 * 60 * 1000L) // 24 hours max
     }
@@ -451,10 +451,10 @@ class GatewayService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Hermes Agent Gateway",
+                "PayNux Agent • Gateway",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps the Hermes Agent gateway running in the background"
+                description = "Keeps the PayNux Agent gateway running in the background"
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -475,9 +475,9 @@ class GatewayService : Service() {
             Notification.Builder(this)
         }
 
-        builder.setContentTitle("Hermes Agent Gateway")
+        builder.setContentTitle("PayNux Agent • Gateway")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_stat_paynux)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
 

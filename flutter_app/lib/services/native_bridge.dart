@@ -35,7 +35,8 @@ class NativeBridge {
   }
 
   static Future<String> runInProot(String command, {int timeout = 900}) async {
-    return await _channel.invokeMethod('runInProot', {'command': command, 'timeout': timeout});
+    return await _channel
+        .invokeMethod('runInProot', {'command': command, 'timeout': timeout});
   }
 
   static Future<bool> startGateway() async {
@@ -58,12 +59,17 @@ class NativeBridge {
     return await _channel.invokeMethod('writeResolv');
   }
 
+  static Future<bool> registerMissingAndroidGroups() async {
+    return await _channel.invokeMethod('registerMissingAndroidGroups');
+  }
+
   static Future<String> readRootfsFile(String path) async {
     return await _channel.invokeMethod('readRootfsFile', {'path': path});
   }
 
   static Future<bool> writeRootfsFile(String path, String content) async {
-    return await _channel.invokeMethod('writeRootfsFile', {'path': path, 'content': content});
+    return await _channel
+        .invokeMethod('writeRootfsFile', {'path': path, 'content': content});
   }
 
   static Future<bool> hasStoragePermission() async {

@@ -1,4 +1,4 @@
-package com.nxg.hermesagentmobile
+package com.pocketdev.paynuxagent
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -33,8 +33,8 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.nxg.hermesagentmobile/native"
-    private val EVENT_CHANNEL = "com.nxg.hermesagentmobile/gateway_logs"
+    private val CHANNEL = "com.pocketdev.paynuxagent/native"
+    private val EVENT_CHANNEL = "com.pocketdev.paynuxagent/gateway_logs"
 
     private lateinit var bootstrapManager: BootstrapManager
     private lateinit var processManager: ProcessManager
@@ -223,6 +223,18 @@ class MainActivity : FlutterActivity() {
                             runOnUiThread { result.success(true) }
                         } catch (e: Exception) {
                             runOnUiThread { result.error("SETUP_ERROR", e.message, null) }
+                        }
+                    }.start()
+                }
+                "registerMissingAndroidGroups" -> {
+                    Thread {
+                        try {
+                            bootstrapManager.registerMissingAndroidGroups()
+                            runOnUiThread { result.success(true) }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                result.error("GROUP_REGISTER_ERROR", e.message, null)
+                            }
                         }
                     }.start()
                 }
@@ -503,10 +515,10 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 URL_CHANNEL_ID,
-                "Hermes Agent URLs",
+                "PayNux Agent • Links",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications for detected URLs"
+                description = "Notifications for links detected by PayNux Agent"
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -526,7 +538,7 @@ class MainActivity : FlutterActivity() {
             Notification.Builder(this, URL_CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(url)
-                .setSmallIcon(android.R.drawable.ic_menu_share)
+                .setSmallIcon(R.drawable.ic_stat_paynux)
                 .setContentIntent(openPending)
                 .setAutoCancel(true)
                 .setStyle(Notification.BigTextStyle().bigText(url))
@@ -536,7 +548,7 @@ class MainActivity : FlutterActivity() {
             Notification.Builder(this)
                 .setContentTitle(title)
                 .setContentText(url)
-                .setSmallIcon(android.R.drawable.ic_menu_share)
+                .setSmallIcon(R.drawable.ic_stat_paynux)
                 .setContentIntent(openPending)
                 .setAutoCancel(true)
                 .build()
@@ -547,7 +559,7 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
-        const val URL_CHANNEL_ID = "hermes_urls"
+        const val URL_CHANNEL_ID = "paynux_urls"
         const val NOTIFICATION_PERMISSION_REQUEST = 1001
         const val STORAGE_PERMISSION_REQUEST = 1002
     }

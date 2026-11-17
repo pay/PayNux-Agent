@@ -47,7 +47,6 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     super.initState();
     _terminal = Terminal(maxLines: 10000);
     _controller = TerminalController();
-    NativeBridge.startTerminalService();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startConfigure();
     });
@@ -57,8 +56,12 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     _pty?.kill();
     _pty = null;
     try {
-      try { await NativeBridge.setupDirs(); } catch (_) {}
-      try { await NativeBridge.writeResolv(); } catch (_) {}
+      try {
+        await NativeBridge.setupDirs();
+      } catch (_) {}
+      try {
+        await NativeBridge.writeResolv();
+      } catch (_) {}
       try {
         final filesDir = await NativeBridge.getFilesDir();
         const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
@@ -84,12 +87,14 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
       configureArgs.removeLast(); // remove '-l'
       configureArgs.removeLast(); // remove '/bin/bash'
       configureArgs.addAll([
-        '/bin/bash', '-lc',
+        '/bin/bash',
+        '-lc',
         'echo "=== Hermes Agent Configure ===" && '
-        'echo "Manage your gateway settings." && '
-        'echo "" && '
-        'cd /root/hermes-agent && source venv/bin/activate && python -m hermes_cli.main setup; '
-        'echo "" && echo "Configuration complete! You can close this screen."',
+            'echo "Manage your gateway settings." && '
+            'echo "" && '
+            'if cd /root/hermes-agent && source ./activate && export UV_LINK_MODE=copy && python -m hermes_cli.main setup; then '
+            'echo "" && echo "Configuration complete! You can close this screen."; '
+            'else status=\$?; echo "" && echo "Configuration failed (exit code \$status)."; exit "\$status"; fi',
       ]);
 
       _pty = Pty.start(
@@ -147,7 +152,6 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     _altNotifier.dispose();
     _controller.dispose();
     _pty?.kill();
-    NativeBridge.stopTerminalService();
     super.dispose();
   }
 
@@ -170,7 +174,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
   }
 
   String? _extractUrl(String text) {
-    final clean = text.replaceAll(_boxDrawing, '').replaceAll(RegExp(r'\s+'), '');
+    final clean =
+        text.replaceAll(_boxDrawing, '').replaceAll(RegExp(r'\s+'), '');
     final parts = clean.split(RegExp(r'(?=https?://)'));
     String? best;
     for (final part in parts) {
@@ -305,7 +310,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                       Text(
                         _error!,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error),
                       ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
@@ -339,7 +345,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               ),
             ),
             TerminalToolbar(
-              pty: _pty,
+              getPty: () => _pty,
               ctrlNotifier: _ctrlNotifier,
               altNotifier: _altNotifier,
             ),

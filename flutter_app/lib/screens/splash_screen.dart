@@ -48,8 +48,12 @@ class _SplashScreenState extends State<SplashScreen>
     try {
       setState(() => _status = 'Checking setup status...');
 
-      try { await NativeBridge.setupDirs(); } catch (_) {}
-      try { await NativeBridge.writeResolv(); } catch (_) {}
+      try {
+        await NativeBridge.setupDirs();
+      } catch (_) {}
+      try {
+        await NativeBridge.writeResolv();
+      } catch (_) {}
       try {
         final filesDir = await NativeBridge.getFilesDir();
         const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
@@ -79,8 +83,10 @@ class _SplashScreenState extends State<SplashScreen>
             if (!await downloadDir.exists()) {
               await downloadDir.create(recursive: true);
             }
-            final snapshotPath = '$sdcard/Download/hermes-snapshot-$oldVersion.json';
-            final hermesConfig = await NativeBridge.readRootfsFile('root/.hermes/config.yaml');
+            final snapshotPath =
+                '$sdcard/Download/hermes-snapshot-$oldVersion.json';
+            final hermesConfig =
+                await NativeBridge.readRootfsFile('root/.hermes/config.yaml');
             final snapshot = {
               'version': oldVersion,
               'timestamp': DateTime.now().toIso8601String(),
@@ -114,21 +120,27 @@ class _SplashScreenState extends State<SplashScreen>
           if (rootfsOk && bashOk) {
             if (!pythonOk) {
               setState(() => _status = 'Reinstalling Python...');
-              await NativeBridge.runInProot(
+              final result = await NativeBridge.runInProot(
                 'apt-get update -y && apt-get install -y python3 python3-venv python3-pip',
                 timeout: 600,
               );
+              debugPrint('[StartupRepair] Python repair output: $result');
             }
             if (!hermesOk) {
               setState(() => _status = 'Reinstalling Hermes Agent...');
-              await NativeBridge.runInProot(
-                'cd /root/hermes-agent && source venv/bin/activate && pip install -r requirements.txt',
+              final result = await NativeBridge.runInProot(
+                'cd /root/hermes-agent && UV_LINK_MODE=copy ./setup-hermes.sh --runtime-only',
                 timeout: 1800,
               );
+              debugPrint('[StartupRepair] Hermes repair output: $result');
             }
             setupComplete = await NativeBridge.isBootstrapComplete();
           }
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('[StartupRepair] Repair failed: $e');
+          debugPrintStack(stackTrace: st);
+          setupComplete = false;
+        }
       }
 
       if (!mounted) return;
@@ -166,7 +178,7 @@ class _SplashScreenState extends State<SplashScreen>
               ),
               const SizedBox(height: 24),
               Text(
-                'Hermes Agent',
+                'PayNux Agent',
                 style: GoogleFonts.inter(
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
@@ -176,17 +188,17 @@ class _SplashScreenState extends State<SplashScreen>
               ),
               const SizedBox(height: 8),
               Text(
-                'AI Gateway for Android',
+                'Your AI. Your Terminal. Your Control.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
               const SizedBox(height: 4),
               Text(
-                'by ${AppConstants.authorName} | ${AppConstants.orgName}',
+                'POWERED BY HERMES ENGINE',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
               const SizedBox(height: 32),
               const CircularProgressIndicator(),
