@@ -1,6 +1,6 @@
 class AppConstants {
   static const String appName = 'PayNux Agent';
-  static const String version = '0.2.4';
+  static const String version = '0.2.5';
   static const String packageName = 'com.pocketdev.paynuxagent';
 
   /// Matches ANSI escape sequences (e.g. color codes in terminal output).
