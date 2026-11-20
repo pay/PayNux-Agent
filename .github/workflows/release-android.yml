@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-release:
@@ -252,6 +252,23 @@ jobs:
             lineage-verify.txt
             apk-sha256.txt
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.1.0
+          target_commitish: main
+          name: PayNux Agent v1.1.0
+          generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            flutter_app/build/app/outputs/flutter-apk/app-release.apk
+            apk-sha256.txt
+            apksigner-verify.txt
+            apksigner-api33.txt
+            apksigner-api29-32.txt
+            lineage-verify.txt
 
       - name: Remove temporary signing material
         if: always()
