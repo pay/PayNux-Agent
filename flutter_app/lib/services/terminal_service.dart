@@ -20,13 +20,11 @@ class TerminalService {
   /// them during an app update (#40). Every screen that uses proot calls
   /// this method, so it's the single place to guarantee the files exist.
   static Future<Map<String, String>> getProotShellConfig() async {
-    // Ensure dirs + resolv.conf exist before any proot operation (#40).
+    // Directory setup is best-effort; DNS setup is mandatory and throws.
     try {
       await NativeBridge.setupDirs();
     } catch (_) {}
-    try {
-      await NativeBridge.writeResolv();
-    } catch (_) {}
+    await NativeBridge.ensureDnsConfig();
 
     final filesDir = await _channel.invokeMethod<String>('getFilesDir') ?? '';
     final nativeLibDir =
@@ -39,24 +37,13 @@ class TerminalService {
     final prootPath = '$nativeLibDir/libproot.so';
     final libDir = '$filesDir/lib';
 
-    // Direct Dart fallback: create resolv.conf if it still doesn't exist
-    // after the native method channel calls (#40).
-    const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
-    try {
-      final resolvFile = File('$configDir/resolv.conf');
-      if (!resolvFile.existsSync()) {
-        Directory(configDir).createSync(recursive: true);
-        resolvFile.writeAsStringSync(resolvContent);
-      }
-    } catch (_) {}
-    // Also write into rootfs /etc/ so DNS works even if bind-mount fails
-    try {
-      final rootfsResolv = File('$rootfsDir/etc/resolv.conf');
-      if (!rootfsResolv.existsSync()) {
-        rootfsResolv.parent.createSync(recursive: true);
-        rootfsResolv.writeAsStringSync(resolvContent);
-      }
-    } catch (_) {}
+    // Verify the authoritative file before any bind argument is assembled.
+    final resolvFile = File('$configDir/resolv.conf');
+    if (!resolvFile.existsSync() || resolvFile.lengthSync() == 0) {
+      throw StateError(
+        'resolv.conf missing before PRoot bind: ${resolvFile.path}',
+      );
+    }
 
     final storageGranted = await NativeBridge.hasStoragePermission();
     var storagePath = '';
@@ -160,7 +147,7 @@ class TerminalService {
       'HOME=/root',
       'USER=root',
       'LANG=C.UTF-8',
-      'PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      'PATH=/root/.local/bin:/root/.hermes/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       'TERM=xterm-256color',
       'TMPDIR=/tmp',
       'COLUMNS=$columns',

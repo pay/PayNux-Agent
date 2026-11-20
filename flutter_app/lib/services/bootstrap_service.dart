@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
 import '../constants.dart';
 import '../models/setup_state.dart';
@@ -42,6 +41,42 @@ class BootstrapService {
     }
   }
 
+  /// Repair CUA runtime libraries on an already-bootstrapped rootfs.
+  /// Uses the existing PRoot command path; never patches the driver binary.
+  Future<void> ensureRuntimeDependencies({bool hermesChecks = true}) async {
+    await NativeBridge.runInProot(
+      r'if [ ! -f /root/.paynux_cua_deps_v1 ]; then '
+      r'apt-get update -y && '
+      r'apt-get install -y --no-install-recommends libx11-6 libxi6 libxkbcommon0 && '
+      r'ldconfig && touch /root/.paynux_cua_deps_v1; fi',
+      timeout: 900,
+    );
+    await NativeBridge.runInProot(
+      "ldconfig -p | grep -q 'libX11.so.6' && "
+      "ldconfig -p | grep -q 'libXi.so.6' && "
+      "ldconfig -p | grep -q 'libxkbcommon.so.0'",
+      timeout: 120,
+    );
+    if (hermesChecks) {
+      // Hermes CLI is optional for opening a terminal. Only run PM checks
+      // when the active rootfs actually provides the executable; otherwise
+      // a missing `hermes` exits 127 and aborts shell startup.
+      await NativeBridge.runInProot(
+        r'export PATH="$HOME/.hermes/bin:$PATH"; '
+        r'if command -v hermes >/dev/null 2>&1 || [ -x /root/.hermes/bin/hermes ]; then '
+        r'cd /root/hermes-agent && hermes pm doctor && hermes pm install cua-driver; '
+        r'else echo "hermes CLI not installed; skipping PM verification"; fi',
+        timeout: 900,
+      );
+    }
+    await NativeBridge.runInProot(
+      r'DRV=$(command -v cua-driver || true); '
+      r'[ -n "$DRV" ] || exit 0; '
+      r'ldd "$DRV" | grep -q "not found" && exit 1 || exit 0',
+      timeout: 120,
+    );
+  }
+
   Future<void> runFullSetup({
     required void Function(SetupState) onProgress,
   }) async {
@@ -57,26 +92,13 @@ class BootstrapService {
       ));
       _updateSetupNotification('Setting up directories...', progress: 2);
       try { await NativeBridge.setupDirs(); } catch (_) {}
-      try { await NativeBridge.writeResolv(); } catch (_) {}
+      // Mandatory DNS setup before any PRoot-based bootstrap step.
+      await NativeBridge.ensureDnsConfig();
 
       final arch = await NativeBridge.getArch();
       final rootfsUrl = AppConstants.getRootfsUrl(arch);
       final filesDir = await NativeBridge.getFilesDir();
 
-      const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
-      try {
-        final configDir = '$filesDir/config';
-        final resolvFile = File('$configDir/resolv.conf');
-        if (!resolvFile.existsSync()) {
-          Directory(configDir).createSync(recursive: true);
-          resolvFile.writeAsStringSync(resolvContent);
-        }
-        final rootfsResolv = File('$filesDir/rootfs/ubuntu/etc/resolv.conf');
-        if (!rootfsResolv.existsSync()) {
-          rootfsResolv.parent.createSync(recursive: true);
-          rootfsResolv.writeAsStringSync(resolvContent);
-        }
-      } catch (_) {}
       final tarPath = '$filesDir/tmp/ubuntu-rootfs.tar.gz';
 
       _updateSetupNotification('Downloading Ubuntu rootfs...', progress: 5);
@@ -152,9 +174,20 @@ class BootstrapService {
         'ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime && '
         'echo "Etc/UTC" > /etc/timezone',
       );
+      // cua-driver links against X11 client libraries; ubuntu-base does not
+      // ship them. Installing them here keeps the fix in the PRoot setup path
+      // without touching or patching the driver binary.
       await NativeBridge.runInProot(
         'apt-get install -y --no-install-recommends '
-        'ca-certificates git python3 python3-venv python3-pip curl wget',
+        'ca-certificates git python3 python3-venv python3-pip curl wget '
+        'libx11-6 libxi6 libxkbcommon0',
+      );
+      _updateSetupNotification('Verifying CUA runtime libraries...', progress: 56);
+      await NativeBridge.runInProot(
+        "ldconfig -p | grep -q 'libX11.so.6' && "
+        "ldconfig -p | grep -q 'libXi.so.6' && "
+        "ldconfig -p | grep -q 'libxkbcommon.so.0'",
+        timeout: 120,
       );
 
       _updateSetupNotification('Cloning Hermes Agent...', progress: 70);
@@ -197,6 +230,14 @@ class BootstrapService {
       ));
       await NativeBridge.runInProot(
         'test -f /root/hermes-agent/gateway/run.py && echo hermes_ready',
+      );
+      _updateSetupNotification('Verifying Hermes PM...', progress: 97);
+      await NativeBridge.runInProot(
+        r'export PATH="$HOME/.hermes/bin:$PATH"; '
+        r'if command -v hermes >/dev/null 2>&1 || [ -x /root/.hermes/bin/hermes ]; then '
+        r'cd /root/hermes-agent && hermes pm doctor && hermes pm install cua-driver; '
+        r'else echo "hermes CLI not installed; skipping PM verification"; fi',
+        timeout: 900,
       );
       onProgress(const SetupState(
         step: SetupStep.installingHermesAgent,

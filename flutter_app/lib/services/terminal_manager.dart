@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_pty/flutter_pty.dart';
 import 'package:xterm/xterm.dart';
 
+import 'bootstrap_service.dart';
 import 'native_bridge.dart';
 import 'terminal_service.dart';
 
@@ -66,6 +67,15 @@ class TerminalSession {
 }
 
 class TerminalManager extends ChangeNotifier {
+  Future<void>? _runtimePrep;
+
+  Future<void> _ensureRuntime() {
+    return _runtimePrep ??= () async {
+      await NativeBridge.prepareProotEnvironment();
+      await BootstrapService().ensureRuntimeDependencies(hermesChecks: false);
+    }();
+  }
+
   TerminalManager._() {
     final first = TerminalSession(_nextId++);
     sessions.add(first);
@@ -350,34 +360,12 @@ class TerminalManager extends ChangeNotifier {
         await NativeBridge.setupDirs();
       } catch (_) {}
 
-      try {
-        await NativeBridge.writeResolv();
-      } catch (e) {
-        debugPrint('DNS setup warning (continuing): $e');
-      }
-
-      try {
-        await NativeBridge.registerMissingAndroidGroups();
-      } catch (e) {
-        debugPrint('Android group registration skipped: $e');
-      }
-
-      try {
-        final filesDir = await NativeBridge.getFilesDir();
-        const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
-
-        final resolvFile = File('$filesDir/config/resolv.conf');
-        if (!resolvFile.existsSync()) {
-          Directory('$filesDir/config').createSync(recursive: true);
-          resolvFile.writeAsStringSync(resolvContent);
-        }
-
-        final rootfsResolv = File('$filesDir/rootfs/ubuntu/etc/resolv.conf');
-        if (!rootfsResolv.existsSync()) {
-          rootfsResolv.parent.createSync(recursive: true);
-          rootfsResolv.writeAsStringSync(resolvContent);
-        }
-      } catch (_) {}
+      // Mandatory DNS setup: fail the session instead of launching PRoot
+      // with a missing resolv.conf bind source.
+      await NativeBridge.ensureDnsConfig();
+      // Repair GID mapping and CUA shared libraries on the active rootfs
+      // before the first PRoot shell is created.
+      await _ensureRuntime();
 
       final config = await TerminalService.getProotShellConfig();
 
@@ -563,6 +551,12 @@ fi
   }
 
   void clearTerminal() {
-    terminal.write('\x1b[2J\x1b[H');
+    // Clear only the active session's viewport AND scrollback. No PTY signal,
+    // no other session is touched.
+    final terminal = activeSession.terminal;
+    terminal.buffer.clear();
+    terminal.buffer.setCursor(0, 0);
+    terminal.notifyListeners();
+    notifyListeners();
   }
 }

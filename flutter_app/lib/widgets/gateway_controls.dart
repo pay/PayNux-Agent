@@ -100,6 +100,12 @@ class GatewayControls extends StatelessWidget {
                         icon: const Icon(Icons.stop),
                         label: const Text('Stop Gateway'),
                       ),
+                    if (state.isRunning)
+                      OutlinedButton.icon(
+                        onPressed: () => provider.restart(),
+                        icon: const Icon(Icons.restart_alt),
+                        label: const Text('Restart Gateway'),
+                      ),
                     OutlinedButton.icon(
                       onPressed: () => Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const LogsScreen()),

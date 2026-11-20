@@ -47,6 +47,10 @@ class NativeBridge {
     return await _channel.invokeMethod('stopGateway');
   }
 
+  static Future<bool> restartGateway() async {
+    return await _channel.invokeMethod('restartGateway');
+  }
+
   static Future<bool> isGatewayRunning() async {
     return await _channel.invokeMethod('isGatewayRunning');
   }
@@ -55,8 +59,25 @@ class NativeBridge {
     return await _channel.invokeMethod('setupDirs');
   }
 
+  static Future<bool> prepareProotEnvironment() async {
+    final result = await _channel.invokeMethod<bool>(
+      'prepareProotEnvironment',
+    );
+    if (result != true) {
+      throw Exception('Failed to prepare PRoot environment');
+    }
+    return true;
+  }
+
+  /// Authoritative DNS setup. Throws on failure (no silent fallback).
+  static Future<bool> ensureDnsConfig() async {
+    return await _channel.invokeMethod('ensureDnsConfig');
+  }
+
+  /// Backward-compatible alias used by existing screens; now routes through
+  /// the authoritative writer as well.
   static Future<bool> writeResolv() async {
-    return await _channel.invokeMethod('writeResolv');
+    return await ensureDnsConfig();
   }
 
   static Future<bool> registerMissingAndroidGroups() async {
@@ -78,6 +99,11 @@ class NativeBridge {
 
   static Future<bool> requestStoragePermission() async {
     return await _channel.invokeMethod('requestStoragePermission');
+  }
+
+  /// Opens the Android Share Sheet (ACTION_SEND chooser).
+  static Future<bool> shareText(String text) async {
+    return await _channel.invokeMethod('shareText', {'text': text});
   }
 
   static Future<String> getExternalStoragePath() async {

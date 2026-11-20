@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_agent_mobile/constants.dart';
+import 'package:hermes_agent_mobile/services/bootstrap_service.dart';
 import 'package:hermes_agent_mobile/services/native_bridge.dart';
 import 'package:hermes_agent_mobile/services/terminal_manager.dart';
 
@@ -44,7 +45,9 @@ void main() {
     channelArgs[call.method] = call.arguments;
     switch (call.method) {
       case 'setupDirs':
+      case 'prepareProotEnvironment':
       case 'writeResolv':
+      case 'ensureDnsConfig':
       case 'registerMissingAndroidGroups':
       case 'startTerminalService':
       case 'stopTerminalService':
@@ -57,6 +60,8 @@ void main() {
       case 'getFilesDir':
       case 'getExternalStoragePath':
         return '/tmp';
+      case 'runInProot':
+        return 'ok';
       case 'hasStoragePermission':
         return false;
       default:
@@ -297,6 +302,47 @@ void main() {
       expect(manager.sessions.map((s) => s.id), [91]);
       expect(manager.activeSessionId, 91);
     });
+  });
+
+  test('terminal startup repair never runs Hermes PM commands', () async {
+    final commands = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'runInProot') {
+        final command = call.arguments['command'] as String;
+        commands.add(command);
+        if (command.contains('hermes pm')) {
+          throw PlatformException(code: '127', message: 'hermes: command not found');
+        }
+        return 'ok';
+      }
+      return defaultHandler(call);
+    });
+
+    await BootstrapService().ensureRuntimeDependencies(hermesChecks: false);
+
+    expect(commands, isNotEmpty);
+    expect(commands.any((c) => c.contains('hermes pm')), isFalse);
+  });
+
+  test('Hermes PM checks are skipped when CLI is absent', () async {
+    final commands = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'runInProot') {
+        final command = call.arguments['command'] as String;
+        commands.add(command);
+        return 'ok';
+      }
+      return defaultHandler(call);
+    });
+
+    // The guarded command contains a shell conditional; it must not be
+    // treated as a bare `hermes pm` invocation.
+    await BootstrapService().ensureRuntimeDependencies();
+
+    final pmCommands = commands.where((c) => c.contains('hermes pm'));
+    expect(pmCommands.length, 1);
+    expect(pmCommands.first, contains('command -v hermes'));
+    expect(pmCommands.first, contains('else echo'));
   });
 
   test('probeTerminalPid forwards pid and bounded timeout', () async {

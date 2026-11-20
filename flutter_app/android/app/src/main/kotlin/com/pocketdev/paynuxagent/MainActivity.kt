@@ -47,13 +47,13 @@ class MainActivity : FlutterActivity() {
         val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
 
         bootstrapManager = BootstrapManager(applicationContext, filesDir, nativeLibDir)
-        processManager = ProcessManager(filesDir, nativeLibDir)
+        processManager = ProcessManager(filesDir, nativeLibDir) { bootstrapManager.ensureDnsConfig() }
 
         if (!setupDone) {
             setupDone = true
             Thread {
                 try { bootstrapManager.setupDirectories() } catch (_: Exception) {}
-                try { bootstrapManager.writeResolvConf() } catch (_: Exception) {}
+                try { bootstrapManager.ensureDnsConfig() } catch (e: Exception) { android.util.Log.w("PayNuxDns", "startup DNS setup failed: ${e.message}") }
             }.start()
         }
 
@@ -117,13 +117,19 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "stopGateway" -> {
-                    try {
-                        GatewayService.stop(applicationContext)
-                    } catch (_: Exception) {}
-                    // Hard-exit the whole app when stopping the gateway.
-                    // This is the only reliable way to ensure the proot/gateway
-                    // process hierarchy is fully terminated on Android.
-                    android.os.Process.killProcess(android.os.Process.myPid())
+                    // GatewayService.stop() performs a controlled, asynchronous
+                    // shutdown and replies only once the processes are verified
+                    // dead. The UI (this Activity) is intentionally left alive.
+                    GatewayService.stop(applicationContext) { stopped ->
+                        runOnUiThread { result.success(stopped) }
+                    }
+                }
+                "restartGateway" -> {
+                    // Stop the processes, verify them, then relaunch the gateway
+                    // in the existing foreground service. Never exits the app.
+                    GatewayService.restart(applicationContext) { restarted ->
+                        runOnUiThread { result.success(restarted) }
+                    }
                 }
                 "isGatewayRunning" -> {
                     result.success(GatewayService.isProcessAlive())
@@ -296,13 +302,39 @@ class MainActivity : FlutterActivity() {
                         }
                     }.start()
                 }
+                "prepareProotEnvironment" -> {
+                    Thread {
+                        try {
+                            bootstrapManager.prepareProotEnvironment()
+                            runOnUiThread { result.success(true) }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                result.error(
+                                    "PROOT_ENV_PREPARE_FAILED",
+                                    e.message ?: "Failed to prepare PRoot environment",
+                                    null
+                                )
+                            }
+                        }
+                    }.start()
+                }
                 "writeResolv" -> {
                     Thread {
                         try {
-                            bootstrapManager.writeResolvConf()
+                            bootstrapManager.ensureDnsConfig()
                             runOnUiThread { result.success(true) }
                         } catch (e: Exception) {
                             runOnUiThread { result.error("RESOLV_ERROR", e.message, null) }
+                        }
+                    }.start()
+                }
+                "ensureDnsConfig" -> {
+                    Thread {
+                        try {
+                            bootstrapManager.ensureDnsConfig()
+                            runOnUiThread { result.success(true) }
+                        } catch (e: Exception) {
+                            runOnUiThread { result.error("DNS_CONFIG_ERROR", e.message, null) }
                         }
                     }.start()
                 }
@@ -358,6 +390,28 @@ class MainActivity : FlutterActivity() {
                         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("URL", text))
                         result.success(true)
+                    } else {
+                        result.error("INVALID_ARGS", "text required", null)
+                    }
+                }
+                "shareText" -> {
+                    // Use the Android Share Sheet (ACTION_SEND + chooser) so logs
+                    // are shared with any app the user chooses.
+                    val text = call.argument<String>("text")
+                    if (!text.isNullOrEmpty()) {
+                        try {
+                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                            }
+                            val chooser =
+                                Intent.createChooser(sendIntent, "Share PayNux logs")
+                            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            applicationContext.startActivity(chooser)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SHARE_ERROR", e.message, null)
+                        }
                     } else {
                         result.error("INVALID_ARGS", "text required", null)
                     }

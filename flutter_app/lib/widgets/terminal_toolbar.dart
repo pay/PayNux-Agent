@@ -9,14 +9,12 @@ class TerminalToolbar extends StatefulWidget {
   final Pty? Function() getPty;
   final ValueNotifier<bool> ctrlNotifier;
   final ValueNotifier<bool> altNotifier;
-  final VoidCallback? onClose;
 
   const TerminalToolbar({
     super.key,
     required this.getPty,
     required this.ctrlNotifier,
     required this.altNotifier,
-    this.onClose,
   });
 
   @override
@@ -257,21 +255,6 @@ class _TerminalToolbarState extends State<TerminalToolbar> {
                       ],
                     ),
                   ),
-                  if (widget.onClose != null)
-                    SizedBox(
-                      width: 34,
-                      height: 34,
-                      child: IconButton(
-                        tooltip: 'Close terminal session',
-                        onPressed: widget.onClose,
-                        padding: EdgeInsets.zero,
-                        icon: const Icon(
-                          Icons.close,
-                          size: 19,
-                          color: Color(0xFFEF4444),
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),

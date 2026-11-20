@@ -1,33 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- soft drop shadow -->
-    <group android:translateY="1.8">
-        <path
-            android:pathData="M35.5,39.5 L51,54 L35.5,68.5"
-            android:strokeColor="#38000000"
-            android:strokeWidth="7"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
-        <path
-            android:pathData="M56,69.25 L72.5,69.25"
-            android:strokeColor="#38000000"
-            android:strokeWidth="7"
-            android:strokeLineCap="round" />
-    </group>
-    <!-- prompt: ">_" -->
-    <path
-        android:pathData="M35.5,39.5 L51,54 L35.5,68.5"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
-    <path
-        android:pathData="M56,69.25 L72.5,69.25"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="7"
-        android:strokeLineCap="round" />
-</vector>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- PayNux Agent mark, scaled into the adaptive-icon safe zone. -->
+    <item
+        android:drawable="@drawable/paynux_logo"
+        android:width="76dp"
+        android:height="76dp"
+        android:gravity="center" />
+</layer-list>

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import '../constants.dart';
 import '../models/gateway_state.dart';
 import 'native_bridge.dart';
@@ -13,6 +13,9 @@ class GatewayService {
   GatewayState _state = const GatewayState();
   DateTime? _startingAt;
   bool _startInProgress = false;
+  bool _stopInProgress = false;
+  bool _restartInProgress = false;
+  int _operationGeneration = 0;
 
   static String _ts(String msg) => '${DateTime.now().toUtc().toIso8601String()} $msg';
 
@@ -21,6 +24,8 @@ class GatewayService {
 
   void _updateState(GatewayState newState) {
     _state = newState;
+    // Late async work (init/health checks) may finish after dispose.
+    if (_stateController.isClosed) return;
     _stateController.add(_state);
   }
 
@@ -29,21 +34,11 @@ class GatewayService {
     await prefs.init();
 
     try { await NativeBridge.setupDirs(); } catch (_) {}
-    try { await NativeBridge.writeResolv(); } catch (_) {}
     try {
-      final filesDir = await NativeBridge.getFilesDir();
-      const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
-      final resolvFile = File('$filesDir/config/resolv.conf');
-      if (!resolvFile.existsSync()) {
-        Directory('$filesDir/config').createSync(recursive: true);
-        resolvFile.writeAsStringSync(resolvContent);
-      }
-      final rootfsResolv = File('$filesDir/rootfs/ubuntu/etc/resolv.conf');
-      if (!rootfsResolv.existsSync()) {
-        rootfsResolv.parent.createSync(recursive: true);
-        rootfsResolv.writeAsStringSync(resolvContent);
-      }
-    } catch (_) {}
+      await NativeBridge.ensureDnsConfig();
+    } catch (e) {
+      debugPrint('[DNS] init setup failed: $e');
+    }
 
     final alreadyRunning = await NativeBridge.isGatewayRunning();
     if (alreadyRunning) {
@@ -75,6 +70,7 @@ class GatewayService {
 
   Future<void> start() async {
     if (_startInProgress) return;
+    final generation = ++_operationGeneration;
     _startInProgress = true;
 
     _updateState(_state.copyWith(
@@ -85,21 +81,11 @@ class GatewayService {
 
     try {
       try { await NativeBridge.setupDirs(); } catch (_) {}
-      try { await NativeBridge.writeResolv(); } catch (_) {}
-      try {
-        final filesDir = await NativeBridge.getFilesDir();
-        const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
-        final resolvFile = File('$filesDir/config/resolv.conf');
-        if (!resolvFile.existsSync()) {
-          Directory('$filesDir/config').createSync(recursive: true);
-          resolvFile.writeAsStringSync(resolvContent);
-        }
-        final rootfsResolv = File('$filesDir/rootfs/ubuntu/etc/resolv.conf');
-        if (!rootfsResolv.existsSync()) {
-          rootfsResolv.parent.createSync(recursive: true);
-          rootfsResolv.writeAsStringSync(resolvContent);
-        }
-      } catch (_) {}
+      // Mandatory: abort start if DNS config cannot be prepared.
+      await NativeBridge.ensureDnsConfig();
+      // Register the app's real GIDs on the active rootfs before PRoot starts.
+      await NativeBridge.prepareProotEnvironment();
+      if (generation != _operationGeneration) return;
 
       _startingAt = DateTime.now();
       await NativeBridge.startGateway();
@@ -112,26 +98,86 @@ class GatewayService {
         logs: [..._state.logs, _ts('[ERROR] Failed to start: $e')],
       ));
     } finally {
-      _startInProgress = false;
+      if (generation == _operationGeneration) _startInProgress = false;
     }
   }
 
+  /// Stops the gateway asynchronously. The native side replies only after the
+  /// Python/PRoot processes are verified dead, so no hard-exit is needed and
+  /// the UI stays alive throughout the operation.
   Future<void> stop() async {
+    if (_stopInProgress) return;
+    final generation = ++_operationGeneration;
+    _stopInProgress = true;
     _cancelAllTimers();
-    _logSubscription?.cancel();
+    await _logSubscription?.cancel();
+    _logSubscription = null;
     _startingAt = null;
 
     try {
-      await NativeBridge.stopGateway();
+      final stopped = await NativeBridge.stopGateway();
       _updateState(GatewayState(
         status: GatewayStatus.stopped,
-        logs: [..._state.logs, _ts('[INFO] Gateway stopped')],
+        logs: [
+          ..._state.logs,
+          if (stopped)
+            _ts('[INFO] Gateway stopped')
+          else
+            _ts('[WARN] Gateway stop completed with warnings - verify processes'),
+        ],
       ));
     } catch (e) {
       _updateState(_state.copyWith(
         status: GatewayStatus.error,
         errorMessage: 'Failed to stop: $e',
       ));
+    } finally {
+      if (generation == _operationGeneration) _stopInProgress = false;
+    }
+  }
+
+  /// Restarts the gateway: controlled stop, verified cleanup, then relaunch.
+  /// Never terminates the app process.
+  Future<void> restart() async {
+    if (_restartInProgress) return;
+    final generation = ++_operationGeneration;
+    _restartInProgress = true;
+    _cancelAllTimers();
+    await _logSubscription?.cancel();
+    _logSubscription = null;
+    _startingAt = null;
+
+    _updateState(_state.copyWith(
+      status: GatewayStatus.starting,
+      clearError: true,
+      clearDashboardUrl: true,
+      logs: [..._state.logs, _ts('[INFO] Restarting gateway...')],
+    ));
+
+    try {
+      final restarted = await NativeBridge.restartGateway();
+      // A Stop that arrived while native restart was in flight wins: do not
+      // re-arm health checks or overwrite the stopped state.
+      if (generation != _operationGeneration) return;
+      if (!restarted) {
+        _updateState(_state.copyWith(
+          logs: [
+            ..._state.logs,
+            _ts('[WARN] Gateway restart was not confirmed by native service'),
+          ],
+        ));
+      }
+      _subscribeLogs();
+      _startHealthCheck();
+      _startingAt = DateTime.now();
+    } catch (e) {
+      _updateState(_state.copyWith(
+        status: GatewayStatus.error,
+        errorMessage: 'Failed to restart: $e',
+        logs: [..._state.logs, _ts('[ERROR] Failed to restart: $e')],
+      ));
+    } finally {
+      if (generation == _operationGeneration) _restartInProgress = false;
     }
   }
 

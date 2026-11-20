@@ -42,6 +42,10 @@ class GatewayProvider extends ChangeNotifier {
     await _gatewayService.stop();
   }
 
+  Future<void> restart() async {
+    await _gatewayService.restart();
+  }
+
   Future<bool> checkHealth() async {
     return _gatewayService.checkHealth();
   }

@@ -39,6 +39,7 @@ flutter:
   assets:
     - assets/resolv.conf
     - assets/ic_launcher.png
+    - assets/paynux_launcher.png
   fonts:
     - family: DejaVuSansMono
       fonts:

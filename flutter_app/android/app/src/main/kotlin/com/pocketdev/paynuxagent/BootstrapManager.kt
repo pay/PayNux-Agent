@@ -650,20 +650,63 @@ class BootstrapManager(
             .filter { it.isNotBlank() }
             .toMutableList()
 
-        val androidGids = listOf(1077, 3003, 9997, 20409, 50409)
-
-        for (gid in androidGids) {
-            val exists = lines.any {
-                it.split(":").getOrNull(2)?.toIntOrNull() == gid
+        // The warning "groups: cannot find name for group ID N" means N is a
+        // real supplementary GID of this app but has no /etc/group entry.
+        // Hardware IDs vary per device/user (9997, 20413, 50413, ...), so a
+        // hardcoded list can never be complete. Read the actual GID set from
+        // the app process and register every one of them.
+        val gids = LinkedHashSet<Int>()
+        try {
+            File("/proc/self/status").readLines().forEach { line ->
+                when {
+                    line.startsWith("Gid:") -> line.removePrefix("Gid:")
+                        .trim().split(Regex("\\s+"))
+                        .firstOrNull()?.toIntOrNull()?.let { gids.add(it) }
+                    line.startsWith("Groups:") -> line.removePrefix("Groups:")
+                        .trim().split(Regex("\\s+"))
+                        .mapNotNull { it.toIntOrNull() }
+                        .forEach { gids.add(it) }
+                }
             }
-            if (exists) continue
+        } catch (_: Exception) {
+            // Fall back to the known Android GIDs below if /proc is unreadable.
+        }
+        // Keep the historical common IDs as a fallback for older devices.
+        gids.addAll(listOf(1077, 3003, 9997, 20409, 50409))
+        gids.remove(0) // root is already defined.
 
+        var changed = false
+        for (gid in gids) {
             val name = "android_gid_$gid"
+            val alreadyMapped = lines.any { line ->
+                val parts = line.split(":")
+                parts.getOrNull(2)?.toIntOrNull() == gid ||
+                    parts.getOrNull(0) == name
+            }
+            if (alreadyMapped) continue
             lines.add("$name:x:$gid:")
+            changed = true
         }
 
-        groupFile.setWritable(true, false)
-        groupFile.writeText(lines.joinToString("\n", postfix = "\n"))
+        if (changed) {
+            groupFile.setWritable(true, false)
+            groupFile.writeText(lines.joinToString("\n", postfix = "\n"))
+
+            val gshadowFile = File("$rootfsDir/etc/gshadow")
+            if (gshadowFile.exists()) {
+                val shadowLines = gshadowFile.readText()
+                    .replace("\\n", "\n").lines().filter { it.isNotBlank() }
+                    .toMutableList()
+                for (gid in gids) {
+                    val name = "android_gid_$gid"
+                    if (shadowLines.none { it.split(":").getOrNull(0) == name }) {
+                        shadowLines.add("$name:*::")
+                    }
+                }
+                gshadowFile.setWritable(true, false)
+                gshadowFile.writeText(shadowLines.joinToString("\n", postfix = "\n"))
+            }
+        }
     }
 
     private fun deleteRecursively(file: File) {
@@ -730,50 +773,44 @@ gateway:
     }
 
     /**
-     * Read DNS servers from Android's active network. Falls back to
-     * Google DNS (8.8.8.8, 8.8.4.4) if system DNS is unavailable (#60).
+     * DNS selection policy (see DnsConfig.formatServers):
+     *  - use ALL servers reported by the active network's LinkProperties,
+     *    which includes VPN DNS when the VPN is the active network;
+     *  - never append a public resolver to a non-empty system list;
+     *  - only when no system DNS is available, fall back to the documented
+     *    public resolvers in DnsConfig.PUBLIC_DNS_FALLBACK.
      */
     private fun getSystemDnsServers(): String {
-        try {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            if (cm != null) {
-                val network = cm.activeNetwork
-                if (network != null) {
-                    val linkProps: LinkProperties? = cm.getLinkProperties(network)
-                    val dnsServers = linkProps?.dnsServers
-                    if (dnsServers != null && dnsServers.isNotEmpty()) {
-                        val lines = dnsServers.joinToString("\n") { "nameserver ${it.hostAddress}" }
-                        // Always append Google DNS as fallback
-                        return "$lines\nnameserver 8.8.8.8\n"
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        return "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
-    }
-
-    fun writeResolvConf() {
-        val content = getSystemDnsServers()
-        // Try context.filesDir first (Android-guaranteed), fall back to
-        // string-based configDir. Always call mkdirs() unconditionally. (#40)
-        try {
-            val dir = File(context.filesDir, "config")
-            dir.mkdirs()
-            File(dir, "resolv.conf").writeText(content)
+        val servers = try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? ConnectivityManager
+            val network = cm?.activeNetwork
+            val props = network?.let { cm.getLinkProperties(it) }
+            props?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList()
         } catch (_: Exception) {
-            // Fallback: use the string-based path
-            File(configDir).mkdirs()
-            File(configDir, "resolv.conf").writeText(content)
+            emptyList()
         }
-
-        // Also write directly into rootfs /etc/resolv.conf so DNS works
-        // even if the bind-mount fails or hasn't been set up yet (#40).
-        try {
-            val rootfsResolv = File(rootfsDir, "etc/resolv.conf")
-            rootfsResolv.parentFile?.mkdirs()
-            rootfsResolv.writeText(content)
-        } catch (_: Exception) {}
+        return DnsConfig.formatServers(servers)
     }
+
+    fun prepareProotEnvironment() {
+        setupDirectories()
+        ensureDnsConfig()
+        // Register the app's real GID/Groups on the ACTIVE rootfs before any
+        // PRoot shell is launched. This is idempotent.
+        registerMissingAndroidGroups()
+    }
+
+    /** Authoritative DNS setup. Uses Android system DNS (incl. VPN/Private DNS
+     *  where exposed by ConnectivityManager) and writes bind + fallback
+     *  atomically. Throws on failure — callers must abort PRoot launch. */
+    fun ensureDnsConfig(): File {
+        val content = getSystemDnsServers()
+        return DnsConfig.ensure(File(configDir), File(rootfsDir, "etc"), content)
+    }
+
+    /** Backward-compatible alias; no longer swallows failures. */
+    fun writeResolvConf(): File = ensureDnsConfig()
 
     /** Read a file from inside the rootfs (e.g. /root/.hermes/config.yaml). */
     fun readRootfsFile(path: String): String? {
@@ -876,7 +913,7 @@ gateway:
 
     private fun checkPythonInProot(): Boolean {
         return try {
-            val pm = ProcessManager(filesDir, nativeLibDir)
+            val pm = ProcessManager(filesDir, nativeLibDir) { ensureDnsConfig() }
             val output = pm.runInProotSync("python3 --version")
             output.trim().startsWith("Python")
         } catch (e: Exception) {
@@ -886,7 +923,7 @@ gateway:
 
     private fun checkHermesAgentInProot(): Boolean {
         return try {
-            val pm = ProcessManager(filesDir, nativeLibDir)
+            val pm = ProcessManager(filesDir, nativeLibDir) { ensureDnsConfig() }
             val output = pm.runInProotSync("test -d /root/hermes-agent")
             output.trim().isNotEmpty()
         } catch (e: Exception) {
