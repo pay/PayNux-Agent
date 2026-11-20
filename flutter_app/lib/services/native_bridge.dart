@@ -100,6 +100,51 @@ class NativeBridge {
     return await _channel.invokeMethod('stopTerminalService');
   }
 
+  /// Native asks Dart to shut down every terminal session.
+  static Stream<dynamic> get terminalControlStream =>
+      const EventChannel(AppConstants.terminalControlEventChannelName)
+          .receiveBroadcastStream();
+
+  /// Reply to native after all sessions have been shut down. `verified` means
+  /// PTY processes exited; it does NOT claim PRoot child processes are gone.
+  static Future<bool> notifyTerminalShutdownComplete(bool verified) async {
+    return await _channel.invokeMethod('terminalShutdownComplete', {
+      'verified': verified,
+    });
+  }
+
+  /// Register the PTY root PID so native can fingerprint and track its tree.
+  static Future<bool> registerTerminalRoot(int sessionId, int pid) async {
+    return await _channel.invokeMethod('registerTerminalRoot', {
+      'sessionId': sessionId,
+      'pid': pid,
+    });
+  }
+
+  static Future<bool> unregisterTerminalRoot(int sessionId) async {
+    return await _channel.invokeMethod('unregisterTerminalRoot', {
+      'sessionId': sessionId,
+    });
+  }
+
+  /// Confirm the PTY PID still exists and is a proot process before registration.
+  static Future<bool> probeTerminalPid(
+    int pid, {
+    int timeoutMs = 1500,
+  }) async {
+    return await _channel.invokeMethod('probeTerminalPid', {
+      'pid': pid,
+      'timeoutMs': timeoutMs,
+    });
+  }
+
+  /// Native verifies and terminates the whole PRoot/Bash/Python tree.
+  static Future<bool> terminateTerminalTree(int sessionId) async {
+    return await _channel.invokeMethod('terminateTerminalTree', {
+      'sessionId': sessionId,
+    });
+  }
+
   static Future<bool> startSetupService() async {
     return await _channel.invokeMethod('startSetupService');
   }

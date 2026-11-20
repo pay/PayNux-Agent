@@ -147,6 +147,54 @@ class MainActivity : FlutterActivity() {
                 "isTerminalServiceRunning" -> {
                     result.success(TerminalSessionService.isRunning)
                 }
+                "terminalShutdownComplete" -> {
+                    val verified = call.argument<Boolean>("verified") == true
+                    TerminalSessionService.shutdownComplete(verified)
+                    result.success(true)
+                }
+                "registerTerminalRoot" -> {
+                    val sessionId = call.argument<Int>("sessionId")
+                    val pid = call.argument<Int>("pid")
+                    if (sessionId != null && pid != null) {
+                        result.success(TerminalProcessController.shared.register(sessionId, pid))
+                    } else {
+                        result.error("INVALID_ARGS", "sessionId and pid required", null)
+                    }
+                }
+                "unregisterTerminalRoot" -> {
+                    val sessionId = call.argument<Int>("sessionId")
+                    if (sessionId != null) {
+                        TerminalProcessController.shared.unregister(sessionId)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGS", "sessionId required", null)
+                    }
+                }
+                "probeTerminalPid" -> {
+                    val pid = call.argument<Int>("pid")
+                    val timeoutMs = call.argument<Int>("timeoutMs")?.toLong()
+                    if (pid != null) {
+                        result.success(
+                            if (timeoutMs != null) {
+                                TerminalProcessController.shared.probe(pid, timeoutMs)
+                            } else {
+                                TerminalProcessController.shared.probe(pid)
+                            }
+                        )
+                    } else {
+                        result.error("INVALID_ARGS", "pid required", null)
+                    }
+                }
+                "terminateTerminalTree" -> {
+                    val sessionId = call.argument<Int>("sessionId")
+                    if (sessionId != null) {
+                        TerminalProcessController.shared.terminate(sessionId) { verified ->
+                            runOnUiThread { result.success(verified) }
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "sessionId required", null)
+                    }
+                }
                 "requestBatteryOptimization" -> {
                     try {
                         val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
@@ -492,6 +540,21 @@ class MainActivity : FlutterActivity() {
                 }
                 override fun onCancel(arguments: Any?) {
                     GatewayService.logSink = null
+                }
+            }
+        )
+
+        // Native → Dart control channel for coordinated terminal shutdown.
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            TerminalSessionService.CONTROL_EVENT_CHANNEL,
+        ).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    TerminalSessionService.controlSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    TerminalSessionService.controlSink = null
                 }
             }
         )

@@ -33,6 +33,8 @@ class AppConstants {
   static const String channelName = 'com.pocketdev.paynuxagent/native';
   static const String eventChannelName =
       'com.pocketdev.paynuxagent/gateway_logs';
+  static const String terminalControlEventChannelName =
+      'com.pocketdev.paynuxagent/terminal_control';
 
   static String getRootfsUrl(String arch) {
     switch (arch) {

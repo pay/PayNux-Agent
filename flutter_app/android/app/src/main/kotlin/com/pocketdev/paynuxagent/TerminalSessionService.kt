@@ -8,17 +8,28 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
+import io.flutter.plugin.common.EventChannel
 
 class TerminalSessionService : Service() {
     companion object {
         const val NOTIFICATION_ID = 2
         const val ACTION_WAKELOCK = "com.pocketdev.paynuxagent.TOGGLE_WAKELOCK"
         const val ACTION_EXIT = "com.pocketdev.paynuxagent.EXIT_TERMINAL"
+        const val CONTROL_EVENT_CHANNEL = "com.pocketdev.paynuxagent/terminal_control"
 
         var isRunning = false
             private set
+
+        private var instance: TerminalSessionService? = null
+        private val mainHandler = Handler(Looper.getMainLooper())
+        var controlSink: EventChannel.EventSink? = null
+        @Volatile private var shutdownPending = false
+        @Volatile private var shutdownTimedOut = false
+        private var shutdownTimeout: Runnable? = null
 
         fun start(context: Context) {
             val intent = Intent(context, TerminalSessionService::class.java)
@@ -32,6 +43,26 @@ class TerminalSessionService : Service() {
         fun stop(context: Context) {
             context.stopService(Intent(context, TerminalSessionService::class.java))
         }
+
+        /** Called by MainActivity when Dart reports that every session is down.
+         *  The service is stopped only after that verified reply. */
+        fun shutdownComplete(verified: Boolean) {
+            mainHandler.post {
+                shutdownTimeout?.let { mainHandler.removeCallbacks(it) }
+                shutdownTimeout = null
+                shutdownPending = false
+                val service = instance
+                if (verified && service != null) {
+                    service.stopForeground(Service.STOP_FOREGROUND_REMOVE)
+                    service.stopSelf()
+                } else {
+                    service?.releaseWakeLock()
+                    service?.updateNotification(
+                        "Terminal shutdown incomplete - sessions may still be running"
+                    )
+                }
+            }
+        }
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -40,6 +71,7 @@ class TerminalSessionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
     }
 
@@ -56,11 +88,9 @@ class TerminalSessionService : Service() {
             }
 
             ACTION_EXIT -> {
-                isRunning = false
-                releaseWakeLock()
-                stopForeground(true)
-                stopSelf()
-                android.os.Process.killProcess(android.os.Process.myPid())
+                // Native owns the shutdown: it can clean every registered
+                // terminal tree even when no Flutter isolate is available.
+                requestNativeShutdown()
                 return START_NOT_STICKY
             }
         }
@@ -74,8 +104,45 @@ class TerminalSessionService : Service() {
         return START_STICKY
     }
 
+    /** Native-owned ACTION_EXIT. Dart is only notified to sync its UI; the
+     *  process trees are verified and signalled here, so no isolate is needed. */
+    private fun requestNativeShutdown() {
+        if (shutdownPending) return
+        shutdownPending = true
+        shutdownTimedOut = false
+        val timeout = Runnable {
+            if (!shutdownPending) return@Runnable
+            shutdownPending = false
+            shutdownTimedOut = true
+            releaseWakeLock()
+            updateNotification("Terminal shutdown timed out - app remains open")
+        }
+        shutdownTimeout = timeout
+        mainHandler.postDelayed(timeout, 20_000L)
+
+        try {
+            controlSink?.success("trees_terminated_by_native")
+        } catch (_: Exception) {}
+
+        TerminalProcessController.shared.terminateAll { verified ->
+            mainHandler.post {
+                shutdownTimeout?.let { mainHandler.removeCallbacks(it) }
+                shutdownTimeout = null
+                if (shutdownTimedOut) {
+                    updateNotification("Terminal shutdown finished after timeout")
+                    return@post
+                }
+                shutdownComplete(verified)
+            }
+        }
+    }
+
     override fun onDestroy() {
         isRunning = false
+        shutdownTimeout?.let { mainHandler.removeCallbacks(it) }
+        shutdownTimeout = null
+        shutdownPending = false
+        instance = null
         releaseWakeLock()
         super.onDestroy()
     }
@@ -109,9 +176,9 @@ class TerminalSessionService : Service() {
         }
     }
 
-    private fun updateNotification() {
+    private fun updateNotification(text: String = "Terminal session active") {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification())
+        manager.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     private fun createNotificationChannel() {
@@ -128,7 +195,7 @@ class TerminalSessionService : Service() {
         }
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(text: String = "Terminal session active"): Notification {
         val openIntent = PendingIntent.getActivity(
             this,
             0,
@@ -145,7 +212,7 @@ class TerminalSessionService : Service() {
 
         return builder
             .setContentTitle("PayNux Agent • Terminal")
-            .setContentText("Terminal session active")
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_paynux)
             .setContentIntent(openIntent)
             .setOngoing(true)
