@@ -22,28 +22,39 @@ jobs:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_OLD_KEYSTORE_BASE64: ${{ secrets.ANDROID_OLD_KEYSTORE_BASE64 }}
+          ANDROID_OLD_STORE_PASSWORD: ${{ secrets.ANDROID_OLD_STORE_PASSWORD }}
+          ANDROID_OLD_KEY_PASSWORD: ${{ secrets.ANDROID_OLD_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           missing=()
-          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then missing+=("ANDROID_KEYSTORE_BASE64"); fi
-          if [ -z "${ANDROID_STORE_PASSWORD:-}" ]; then missing+=("ANDROID_STORE_PASSWORD"); fi
-          if [ -z "${ANDROID_KEY_ALIAS:-}" ]; then missing+=("ANDROID_KEY_ALIAS"); fi
-          if [ -z "${ANDROID_KEY_PASSWORD:-}" ]; then missing+=("ANDROID_KEY_PASSWORD"); fi
+          for name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_STORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD \
+            ANDROID_OLD_KEYSTORE_BASE64 \
+            ANDROID_OLD_STORE_PASSWORD \
+            ANDROID_OLD_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
           if [ "${#missing[@]}" -ne 0 ]; then
-            echo "::error::Missing required GitHub Secrets: ${missing[*]}. Configure them in Settings > Secrets and variables > Actions. No debug-signing fallback is allowed."
+            echo "::error::Missing GitHub Secrets: ${missing[*]}"
             exit 1
           fi
-          echo "All required signing secrets are present."
+          echo "All seven signing secrets are present."
 
       - name: Verify release version metadata
         shell: bash
         run: |
+          set -euo pipefail
           cd flutter_app
-          grep -q '^version: 1.1.0+3' pubspec.yaml || { echo "::error::pubspec.yaml must be 1.1.0+3"; exit 1; }
-          grep -q "static const String version = '1.1.0';" lib/constants.dart || { echo "::error::AppConstants.version must be 1.1.0"; exit 1; }
-          grep -q 'applicationId = "com.pocketdev.paynuxagent"' android/app/build.gradle || { echo "::error::applicationId mismatch"; exit 1; }
-          grep -q 'flutterVersionCode = "3"' android/app/build.gradle || { echo "::error::versionCode fallback must be 3"; exit 1; }
-          grep -q 'flutterVersionName = "1.1.0"' android/app/build.gradle || { echo "::error::versionName fallback must be 1.1.0"; exit 1; }
-          echo "Version metadata verified: 1.1.0 (3), com.pocketdev.paynuxagent."
+          grep -q '^version: 1.1.0+3' pubspec.yaml
+          grep -q "static const String version = '1.1.0';" lib/constants.dart
+          grep -q 'applicationId = "com.pocketdev.paynuxagent"' android/app/build.gradle
+          grep -q 'flutterVersionCode = "3"' android/app/build.gradle
+          grep -q 'flutterVersionName = "1.1.0"' android/app/build.gradle
+          echo "Version metadata verified."
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -58,6 +69,11 @@ jobs:
         shell: bash
         run: |
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$SDK_ROOT"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          echo "APKSIGNER=$APKSIGNER" >> "$GITHUB_ENV"
 
       - name: Set up Flutter 3.27.4
         uses: subosito/flutter-action@v2
@@ -66,25 +82,55 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Decode keystore into runner temp
+      - name: Prepare signing keys and certificate lineage
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_OLD_KEYSTORE_BASE64: ${{ secrets.ANDROID_OLD_KEYSTORE_BASE64 }}
+          ANDROID_OLD_STORE_PASSWORD: ${{ secrets.ANDROID_OLD_STORE_PASSWORD }}
+          ANDROID_OLD_KEY_PASSWORD: ${{ secrets.ANDROID_OLD_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          KEYSTORE_PATH="$RUNNER_TEMP/paynux-release.jks"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
-          chmod 600 "$KEYSTORE_PATH"
-          if [ ! -s "$KEYSTORE_PATH" ]; then
-            echo "::error::Decoded keystore is empty."
-            exit 1
-          fi
-          keytool -list -keystore "$KEYSTORE_PATH" \
+
+          OLD_KEYSTORE="$RUNNER_TEMP/paynux-old-debug.jks"
+          NEW_KEYSTORE="$RUNNER_TEMP/paynux-release.jks"
+          LINEAGE="$RUNNER_TEMP/paynux-lineage.bin"
+
+          printf '%s' "$ANDROID_OLD_KEYSTORE_BASE64" | base64 --decode > "$OLD_KEYSTORE"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$NEW_KEYSTORE"
+          chmod 600 "$OLD_KEYSTORE" "$NEW_KEYSTORE"
+
+          test -s "$OLD_KEYSTORE"
+          test -s "$NEW_KEYSTORE"
+
+          keytool -list -keystore "$OLD_KEYSTORE" \
+            -storepass:env ANDROID_OLD_STORE_PASSWORD \
+            -alias androiddebugkey > /dev/null
+
+          keytool -list -keystore "$NEW_KEYSTORE" \
             -storepass:env ANDROID_STORE_PASSWORD \
             -alias "$ANDROID_KEY_ALIAS" > /dev/null
-          echo "Keystore decoded and alias verified."
+
+          "$APKSIGNER" rotate \
+            --out "$LINEAGE" \
+            --old-signer \
+            --ks "$OLD_KEYSTORE" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass env:ANDROID_OLD_STORE_PASSWORD \
+            --key-pass env:ANDROID_OLD_KEY_PASSWORD \
+            --set-installed-data true \
+            --new-signer \
+            --ks "$NEW_KEYSTORE" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_STORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD
+
+          test -s "$LINEAGE"
+          chmod 600 "$LINEAGE"
+          echo "Both keystores verified; certificate lineage created."
 
       - name: Write local key.properties (runner only)
         shell: bash
@@ -94,54 +140,105 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          KEYSTORE_PATH="$RUNNER_TEMP/paynux-release.jks"
-          if [ ! -s "$KEYSTORE_PATH" ]; then
-            echo "::error::Keystore missing; refusing to build with debug signing."
-            exit 1
-          fi
           cat > flutter_app/android/key.properties <<EOF
-          storeFile=$KEYSTORE_PATH
+          storeFile=$RUNNER_TEMP/paynux-release.jks
           storePassword=$ANDROID_STORE_PASSWORD
           keyAlias=$ANDROID_KEY_ALIAS
           keyPassword=$ANDROID_KEY_PASSWORD
           EOF
           chmod 600 flutter_app/android/key.properties
-          echo "key.properties written for this runner only."
 
       - name: Build release APK
         shell: bash
         run: flutter build apk --release
         working-directory: flutter_app
 
-      - name: Verify APK signature and reject debug signing
+      - name: Sign APK with certificate lineage
+        shell: bash
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_OLD_STORE_PASSWORD: ${{ secrets.ANDROID_OLD_STORE_PASSWORD }}
+          ANDROID_OLD_KEY_PASSWORD: ${{ secrets.ANDROID_OLD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          APK="flutter_app/build/app/outputs/flutter-apk/app-release.apk"
+          ROTATED_APK="$RUNNER_TEMP/app-release-lineage.apk"
+
+          test -s "$APK"
+          test -s "$RUNNER_TEMP/paynux-lineage.bin"
+
+          "$APKSIGNER" sign \
+            --out "$ROTATED_APK" \
+            --ks "$RUNNER_TEMP/paynux-old-debug.jks" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass env:ANDROID_OLD_STORE_PASSWORD \
+            --key-pass env:ANDROID_OLD_KEY_PASSWORD \
+            --next-signer \
+            --ks "$RUNNER_TEMP/paynux-release.jks" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_STORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --lineage "$RUNNER_TEMP/paynux-lineage.bin" \
+            --rotation-min-sdk-version 33 \
+            --v1-signing-enabled false \
+            --v2-signing-enabled false \
+            --v3-signing-enabled true \
+            --v4-signing-enabled false \
+            "$APK"
+
+          test -s "$ROTATED_APK"
+          mv "$ROTATED_APK" "$APK"
+          echo "APK signed with old/new certificate lineage."
+
+      - name: Verify both certificate generations
         shell: bash
         run: |
           set -euo pipefail
+
           APK="flutter_app/build/app/outputs/flutter-apk/app-release.apk"
-          if [ ! -f "$APK" ]; then
-            echo "::error::Release APK not found at $APK"
-            exit 1
-          fi
-          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          if [ -z "$SDK_ROOT" ]; then
-            echo "::error::Android SDK path is not set."
-            exit 1
-          fi
-          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
-            echo "::error::apksigner not found in $SDK_ROOT/build-tools"
-            exit 1
-          fi
-          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee apksigner-verify.txt
-          if grep -qi 'Android Debug' apksigner-verify.txt; then
-            echo "::error::APK is debug-signed. Release signing is required."
-            exit 1
-          fi
-          echo "APK signature verified and is not debug-signed."
+          LINEAGE="$RUNNER_TEMP/paynux-lineage.bin"
+          OLD_CERT="71a2e96ed22ae7ea51ec9003322f77fc37176b015927fdafdf37250ecbfc549d"
+          NEW_CERT="48e685fac5dddc0979d688972b916da8a3ad4da603470332e44321c96241bfdb"
+
+          "$APKSIGNER" verify --verbose --print-certs \
+            --min-sdk-version 33 "$APK" > apksigner-api33.txt
+
+          "$APKSIGNER" verify --verbose --print-certs \
+            --max-sdk-version 32 "$APK" > apksigner-api29-32.txt
+
+          "$APKSIGNER" lineage --in "$LINEAGE" --print-certs \
+            > lineage-verify.txt
+
+          cat apksigner-api33.txt apksigner-api29-32.txt lineage-verify.txt \
+            | tee apksigner-verify.txt
+
+          tr -d ':[:space:]' < apksigner-api33.txt | tr '[:upper:]' '[:lower:]' \
+            | grep -F "$NEW_CERT" > /dev/null || {
+              echo "::error::API 33+ does not use the expected release certificate."
+              exit 1
+            }
+
+          tr -d ':[:space:]' < apksigner-api29-32.txt | tr '[:upper:]' '[:lower:]' \
+            | grep -F "$OLD_CERT" > /dev/null || {
+              echo "::error::API 29–32 does not use the expected legacy certificate."
+              exit 1
+            }
+
+          tr -d ':[:space:]' < lineage-verify.txt | tr '[:upper:]' '[:lower:]' \
+            | grep -F "$OLD_CERT" > /dev/null
+          tr -d ':[:space:]' < lineage-verify.txt | tr '[:upper:]' '[:lower:]' \
+            | grep -F "$NEW_CERT" > /dev/null
+
+          echo "Certificate verification passed for API 29–32 and API 33+."
 
       - name: Compute SHA-256
         shell: bash
-        run: sha256sum flutter_app/build/app/outputs/flutter-apk/app-release.apk | tee apk-sha256.txt
+        run: |
+          sha256sum flutter_app/build/app/outputs/flutter-apk/app-release.apk \
+            | tee apk-sha256.txt
 
       - name: Upload APK as Actions artifact
         uses: actions/upload-artifact@v4
@@ -150,6 +247,9 @@ jobs:
           path: |
             flutter_app/build/app/outputs/flutter-apk/app-release.apk
             apksigner-verify.txt
+            apksigner-api33.txt
+            apksigner-api29-32.txt
+            lineage-verify.txt
             apk-sha256.txt
           if-no-files-found: error
 
@@ -157,5 +257,8 @@ jobs:
         if: always()
         shell: bash
         run: |
+          rm -f "$RUNNER_TEMP/paynux-old-debug.jks"
           rm -f "$RUNNER_TEMP/paynux-release.jks"
+          rm -f "$RUNNER_TEMP/paynux-lineage.bin"
+          rm -f "$RUNNER_TEMP/app-release-lineage.apk"
           rm -f flutter_app/android/key.properties
