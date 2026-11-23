@@ -316,6 +316,19 @@ class GatewayService : Service() {
             return GProcScan(entries, rootReadable = true)
         }
 
+        /** Re-scan a few times when a process vanished mid-scan (unreadable
+         *  /proc entry), so a transient race is not reported as a failed stop. */
+        private fun scanProcessesStable(ctx: GIdentityContext): GProcScan {
+            var scan = scanProcesses()
+            var attempt = 1
+            while (attempt < 3 && GatewayIdentityRules.incomplete(scan, ctx, myUid())) {
+                try { Thread.sleep(200) } catch (_: InterruptedException) { break }
+                scan = scanProcesses()
+                attempt++
+            }
+            return scan
+        }
+
         private fun readEntry(pid: String): GProcEntry? {
             if (procDirPresent(pid) != true) return null
             return entryFromDir(File("/proc/$pid"))
@@ -1038,8 +1051,8 @@ class GatewayService : Service() {
         readGatewayPid(filesDir)?.let { knownPids.add(it) }
         proc?.let { processPid(it)?.let { knownPids.add(it) } }
 
-        val scan = scanProcesses()
         val initialCtx = GIdentityContext(knownPids, emptySet(), knownPids)
+        val scan = scanProcessesStable(initialCtx)
         if (GatewayIdentityRules.incomplete(scan, initialCtx, myUid())) {
             emitLog("[WARN] Initial /proc scan failed/incomplete; shutdown not verified")
             return false
@@ -1098,8 +1111,8 @@ class GatewayService : Service() {
 
         // Final verification: full tree scan plus fingerprint re-check of the
         // snapshot captured before SIGTERM/SIGKILL.
-        val finalScan = scanProcesses()
         val finalCtx = GIdentityContext(knownPids, emptySet(), knownPids)
+        val finalScan = scanProcessesStable(finalCtx)
         if (GatewayIdentityRules.incomplete(finalScan, finalCtx, myUid())) {
             emitLog("[WARN] Final /proc scan failed/incomplete; shutdown not verified")
             clean = false

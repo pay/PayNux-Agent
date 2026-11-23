@@ -163,9 +163,15 @@ class GatewayService {
         _updateState(_state.copyWith(
           logs: [
             ..._state.logs,
-            _ts('[WARN] Gateway restart was not confirmed by native service'),
+            _ts('[WARN] Native restart not confirmed, falling back to stop+start'),
           ],
         ));
+        try { await NativeBridge.stopGateway(); } catch (_) {}
+        if (generation != _operationGeneration) return;
+        // start() bumps the generation, so release the flag first.
+        _restartInProgress = false;
+        await start();
+        return;
       }
       _subscribeLogs();
       _startHealthCheck();
