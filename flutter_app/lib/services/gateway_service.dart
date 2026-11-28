@@ -98,7 +98,10 @@ class GatewayService {
         logs: [..._state.logs, _ts('[ERROR] Failed to start: $e')],
       ));
     } finally {
-      if (generation == _operationGeneration) _startInProgress = false;
+      // Always release our own flag. Guarding on the generation left the flag
+      // stuck forever when a newer operation superseded this one, and every
+      // later tap was then silently ignored by the early return above.
+      _startInProgress = false;
     }
   }
 
@@ -132,7 +135,7 @@ class GatewayService {
         errorMessage: 'Failed to stop: $e',
       ));
     } finally {
-      if (generation == _operationGeneration) _stopInProgress = false;
+      _stopInProgress = false;
     }
   }
 
@@ -200,7 +203,7 @@ class GatewayService {
         logs: [..._state.logs, _ts('[ERROR] Failed to restart: $e')],
       ));
     } finally {
-      if (generation == _operationGeneration) _restartInProgress = false;
+      _restartInProgress = false;
     }
   }
 
