@@ -69,7 +69,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   Text(
                     _started
                         ? 'Setting up the environment. This may take several minutes.'
-                        : 'Prepare your PayNux environment with Ubuntu and the Hermes engine. Python is installed later from Settings.',
+                        : 'Prepare your PayNux environment with Ubuntu and the Hermes engine.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),

@@ -99,7 +99,7 @@ class _SplashScreenState extends State<SplashScreen>
           final status = await NativeBridge.getBootstrapStatus();
           final rootfsOk = status['rootfsExists'] == true;
           final bashOk = status['binBashExists'] == true;
-          final pythonOk = status['pythonInstalled'] == true;
+          final pythonOk = status['python3Installed'] == true;
           final hermesOk = status['hermesInstalled'] == true;
 
           if (rootfsOk && bashOk) {

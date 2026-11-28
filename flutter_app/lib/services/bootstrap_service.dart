@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -199,86 +198,6 @@ class BootstrapService {
     return int.tryParse(header.substring(slash + 1).trim());
   }
 
-  /// Optional extra, never blocks or fails setup.
-  Future<void> _installOptionalCuaDriver() async {
-    try {
-      await NativeBridge.runInProot(
-        r'export PATH="$HOME/.hermes/bin:$PATH"; '
-        r'if command -v hermes >/dev/null 2>&1 || [ -x /root/.hermes/bin/hermes ]; then '
-        r'cd /root/hermes-agent && hermes pm install cua-driver || true; fi',
-        timeout: 600,
-      );
-    } catch (_) {}
-  }
-
-  /// True when Python and the Hermes dependencies are installed. Installs made
-  /// by the old setup (no setup_state/ folder) count as installed.
-  Future<bool> isPythonInstalled() async {
-    try {
-      final filesDir = await NativeBridge.getFilesDir();
-      if (!File('$filesDir/rootfs/ubuntu/usr/bin/python3').existsSync()) {
-        return false;
-      }
-      final cp = _Checkpoints(filesDir);
-      if (!cp.dir.existsSync()) return true;
-      return cp.has(_Checkpoints.hermesDeps);
-    } catch (_) {
-      return true; // fail open: never block the gateway on a check error
-    }
-  }
-
-  /// Installs Python, the X11 runtime libs and the Hermes dependencies.
-  /// Called from Settings; the first-run setup no longer does this.
-  Future<void> installPython({
-    required void Function(String status) onStatus,
-  }) async {
-    final filesDir = await NativeBridge.getFilesDir();
-    if (!File('$filesDir/rootfs/ubuntu/root/hermes-agent/setup-hermes.sh')
-        .existsSync()) {
-      throw Exception('Hermes Agent is not installed. Run setup first.');
-    }
-    final cp = _Checkpoints(filesDir);
-    try {
-      await NativeBridge.startSetupService();
-    } catch (_) {}
-    try {
-      await NativeBridge.ensureDnsConfig();
-
-      onStatus('Updating package lists...');
-      _updateSetupNotification('Updating package lists...', progress: 10);
-      await NativeBridge.runInProot('apt-get update -y');
-
-      onStatus('Installing Python packages...');
-      _updateSetupNotification('Installing Python packages...', progress: 30);
-      await NativeBridge.runInProot(
-        'apt-get install -y --no-install-recommends '
-        'python3 python3-venv python3-pip '
-        'libx11-6 libxi6 libxkbcommon0 && '
-        'touch /root/.paynux_cua_deps_v1',
-        timeout: 1800,
-      );
-      try {
-        await File('$filesDir/runtime_deps_ok').writeAsString('1');
-      } catch (_) {}
-
-      onStatus('Installing Hermes dependencies (can take a while)...');
-      _updateSetupNotification('Installing Hermes dependencies...', progress: 60);
-      await NativeBridge.runInProot(
-        'cd /root/hermes-agent && '
-        'grep -q UV_LINK_MODE pm/index_config.py || '
-        'sed -i \'/FORWARDED_UV_SETTINGS[[:space:]]*=/a\\    "UV_LINK_MODE",\' pm/index_config.py && '
-        'UV_LINK_MODE=copy ./setup-hermes.sh --runtime-only',
-        timeout: 1800,
-      );
-      await cp.mark(_Checkpoints.hermesDeps);
-      _updateSetupNotification('Python installed', progress: 100);
-      onStatus('Python installed');
-      unawaited(_installOptionalCuaDriver());
-    } finally {
-      _stopSetupService();
-    }
-  }
-
   Future<void> runFullSetup({
     required void Function(SetupState) onProgress,
   }) async {
@@ -414,16 +333,16 @@ class BootstrapService {
         await cp.mark(_Checkpoints.packages);
       }
 
-      // ---- 3. Hermes Agent (clone only; Python is installed from Settings) --
+      // ---- 3. Hermes Agent and runtime dependencies ----------------------
       final runPy = File('$filesDir/rootfs/ubuntu/root/hermes-agent/gateway/run.py');
       if (cp.has(_Checkpoints.hermesClone) && runPy.existsSync()) {
         onProgress(const SetupState(
           step: SetupStep.installingHermesAgent,
-          progress: 0.9,
+          progress: 0.65,
           message: 'Hermes Agent already cloned',
         ));
       } else {
-        _updateSetupNotification('Cloning Hermes Agent...', progress: 70);
+        _updateSetupNotification('Cloning Hermes Agent...', progress: 65);
         onProgress(const SetupState(
           step: SetupStep.installingHermesAgent,
           progress: 0.3,
@@ -440,21 +359,87 @@ class BootstrapService {
           'else [ ! -d hermes-agent.previous ] || mv hermes-agent.previous hermes-agent; exit 1; fi',
           timeout: 600,
         );
-        // A fresh clone means dependencies must be (re)installed from Settings.
+        // A fresh clone invalidates the previous Hermes runtime checkpoint.
         final deps = File('${cp.dir.path}/${_Checkpoints.hermesDeps}');
         if (deps.existsSync()) await deps.delete();
         await cp.mark(_Checkpoints.hermesClone);
       }
 
-      _updateSetupNotification('Verifying installation...', progress: 96);
+      // Trust the checkpoint only while the gateway's actual Python launcher
+      // still works. This repairs missing or stale runtime installations.
+      var runtimeReady = false;
+      if (cp.has(_Checkpoints.hermesDeps)) {
+        try {
+          await NativeBridge.runInProot(
+            'cd /root/hermes-agent && '
+            'test -f gateway/run.py && '
+            'test -x scripts/run-in-hermes-env && '
+            'UV_LINK_MODE=copy scripts/run-in-hermes-env python --version',
+            timeout: 120,
+          );
+          runtimeReady = true;
+        } catch (_) {
+          runtimeReady = false;
+        }
+      }
+
+      if (!runtimeReady) {
+        _updateSetupNotification('Installing Python runtime...', progress: 74);
+        onProgress(const SetupState(
+          step: SetupStep.installingHermesAgent,
+          progress: 0.72,
+          message: 'Installing Python and runtime libraries...',
+        ));
+
+        await NativeBridge.runInProot(
+          'apt-get update -y && '
+          'apt-get install -y --no-install-recommends '
+          'python3 python3-venv python3-pip '
+          'libx11-6 libxi6 libxkbcommon0 && '
+          'ldconfig && touch /root/.paynux_cua_deps_v1',
+          timeout: 1800,
+        );
+
+        try {
+          await File('$filesDir/runtime_deps_ok').writeAsString('1');
+        } catch (_) {}
+
+        _updateSetupNotification('Installing Hermes dependencies...', progress: 84);
+        onProgress(const SetupState(
+          step: SetupStep.installingHermesAgent,
+          progress: 0.82,
+          message: 'Installing Hermes Agent runtime dependencies...',
+        ));
+
+        await NativeBridge.runInProot(
+          'cd /root/hermes-agent && '
+          'grep -q UV_LINK_MODE pm/index_config.py || '
+          'sed -i \'/FORWARDED_UV_SETTINGS[[:space:]]*=/a\\    "UV_LINK_MODE",\' pm/index_config.py && '
+          'UV_LINK_MODE=copy ./setup-hermes.sh --runtime-only',
+          timeout: 1800,
+        );
+      }
+
+      _updateSetupNotification('Verifying runtime...', progress: 96);
       onProgress(const SetupState(
         step: SetupStep.installingHermesAgent,
         progress: 0.95,
-        message: 'Verifying Hermes Agent installation...',
+        message: 'Verifying Hermes Agent and Python runtime...',
       ));
+
+      // Match the exact launcher and interpreter used by GatewayService.kt.
       await NativeBridge.runInProot(
-        'test -f /root/hermes-agent/gateway/run.py && echo hermes_ready',
+        'cd /root/hermes-agent && '
+        'test -f gateway/run.py && '
+        'test -x scripts/run-in-hermes-env && '
+        'UV_LINK_MODE=copy scripts/run-in-hermes-env python --version',
+        timeout: 120,
       );
+
+      if (!cp.has(_Checkpoints.hermesDeps)) {
+        await cp.mark(_Checkpoints.hermesDeps);
+      }
+
       onProgress(const SetupState(
         step: SetupStep.installingHermesAgent,
         progress: 1.0,
@@ -474,7 +459,7 @@ class BootstrapService {
       onProgress(const SetupState(
         step: SetupStep.complete,
         progress: 1.0,
-        message: 'Setup complete! Open Settings > Install Python before starting the gateway.',
+        message: 'Setup complete! Ready to start the agent.',
       ));
     } on DioException catch (e) {
       _stopSetupService();

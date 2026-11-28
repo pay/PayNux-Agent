@@ -477,8 +477,9 @@ class GatewayService : Service() {
             return System.currentTimeMillis() - inst.startTime < 120_000
         }
 
-        /** True only when a verified gateway process is alive AND port 18789
-         *  listens. Never called on the main thread. */
+        /** True only when a verified gateway process is alive and either port
+         *  18789 listens or the process survives the startup grace period.
+         *  Never called on the main thread. */
         private fun isGatewayReady(): Boolean {
             val inst = instance ?: return false
             if (!isProcessAlive()) return false
@@ -490,7 +491,16 @@ class GatewayService : Service() {
             } catch (_: Exception) {
                 false
             }
-            if (!listening) return false
+            if (!listening) {
+                // Hermes' messaging gateway does not open port 18789 (confirmed
+                // by logs: Telegram connected while the port stayed closed).
+                // A verified process that stayed alive for a short grace period
+                // is ready.
+                val started = inst.processStartTime
+                if (started == 0L || System.currentTimeMillis() - started < 8_000L) {
+                    return false
+                }
+            }
 
             val filesDir = inst.applicationContext.filesDir.absolutePath
             val knownPids = LinkedHashSet<String>()
@@ -617,7 +627,8 @@ class GatewayService : Service() {
     private var restartCount = 0
     private val maxRestarts = 5
     private var startTime: Long = 0
-    private var processStartTime: Long = 0
+    @Volatile private var processStartTime: Long = 0
+    @Volatile private var portWarned = false
     private var uptimeThread: Thread? = null
     private var watchdogThread: Thread? = null
     private var gatewayThread: Thread? = null
@@ -741,6 +752,7 @@ class GatewayService : Service() {
             stopping = false
             restartCount = maxRestarts
             gatewayProcess = null
+            processStartTime = 0L
         }
         uptimeThread?.interrupt(); uptimeThread = null
         watchdogThread?.interrupt(); watchdogThread = null
@@ -784,6 +796,7 @@ class GatewayService : Service() {
             isRunning = true
             instance = this
             startTime = System.currentTimeMillis()
+            processStartTime = 0L
             stopGeneration
         }
 
@@ -862,10 +875,12 @@ class GatewayService : Service() {
                 }
 
                 emitLog("[INFO] Spawning proot process...")
+                var processStartedAt = 0L
                 synchronized(lock) {
                     if (stopping || stopGeneration != generation) return@Thread
-                    processStartTime = System.currentTimeMillis()
                     gatewayProcess = pm.startProotProcess("cd /root/hermes-agent && export UV_LINK_MODE=copy && exec scripts/run-in-hermes-env python gateway/run.py")
+                    processStartedAt = System.currentTimeMillis()
+                    processStartTime = processStartedAt
                 }
                 updateNotificationRunning()
                 emitLog("[INFO] Gateway process spawned")
@@ -902,7 +917,7 @@ class GatewayService : Service() {
                 }.start()
 
                 val exitCode = proc.waitFor()
-                val uptimeMs = System.currentTimeMillis() - processStartTime
+                val uptimeMs = System.currentTimeMillis() - processStartedAt
                 val uptimeSec = uptimeMs / 1000
                 emitLog("[INFO] Gateway exited with code $exitCode (uptime: ${uptimeSec}s)")
 
@@ -969,6 +984,7 @@ class GatewayService : Service() {
             gatewayThread = null
             procToStop = gatewayProcess
             gatewayProcess = null
+            processStartTime = 0L
         }
         emitLog("[INFO] Stopping gateway...")
 
@@ -1162,7 +1178,12 @@ class GatewayService : Service() {
                     }
                     // Also check if port is still responding after initial startup
                     if (proc != null && !isPortInUse()) {
-                        emitLog("[WARN] Watchdog: port 18789 not responding")
+                        if (!portWarned) {
+                            portWarned = true
+                            emitLog("[INFO] Watchdog: port 18789 not listening; relying on process liveness")
+                        }
+                    } else {
+                        portWarned = false
                     }
                     Thread.sleep(15_000) // Check every 15s
                 }

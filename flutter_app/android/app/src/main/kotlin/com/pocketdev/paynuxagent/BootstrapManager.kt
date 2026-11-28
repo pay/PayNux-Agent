@@ -57,10 +57,12 @@ class BootstrapManager(
         // the end, so a half-finished install is not mistaken for a finished
         // one. Installs made before this marker existed are unaffected.
         val incomplete = File("$filesDir/setup_state/incomplete").exists()
-        // Python is no longer part of the first-run setup (it is installed from
-        // Settings), so it is not required here.
-        return rootfs.exists() && binBash.exists()
-            && hermes.exists() && !incomplete
+        // Runtime readiness requires Python and the checkpoint written only
+        // after the Hermes launcher has passed its runtime verification.
+        val python3 = File("$rootfsDir/usr/bin/python3")
+        val hermesDeps = File("$filesDir/setup_state/hermes_deps")
+        return rootfs.exists() && binBash.exists() && hermes.exists()
+            && python3.exists() && hermesDeps.exists() && !incomplete
     }
 
     fun getBootstrapStatus(): Map<String, Any> {
@@ -68,14 +70,20 @@ class BootstrapManager(
         val binBashExists = File("$rootfsDir/bin/bash").exists()
         val python3Exists = File("$rootfsDir/usr/bin/python3").exists()
         val hermesExists = File("$rootfsDir/root/hermes-agent/gateway/run.py").exists()
+        val hermesDepsInstalled = File("$filesDir/setup_state/hermes_deps").exists()
+        val incomplete = File("$filesDir/setup_state/incomplete").exists()
 
         return mapOf(
             "rootfsExists" to rootfsExists,
             "binBashExists" to binBashExists,
             "python3Installed" to python3Exists,
             "hermesInstalled" to hermesExists,
+            "hermesDepsInstalled" to hermesDepsInstalled,
             "rootfsPath" to rootfsDir,
-            "complete" to (rootfsExists && binBashExists && hermesExists)
+            "complete" to (
+                rootfsExists && binBashExists && python3Exists &&
+                    hermesExists && hermesDepsInstalled && !incomplete
+            )
         )
     }
 
