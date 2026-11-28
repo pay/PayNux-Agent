@@ -54,8 +54,12 @@ class BootstrapManager(
         val binBash = File("$rootfsDir/bin/bash")
         val python3 = File("$rootfsDir/usr/bin/python3")
         val hermes = File("$rootfsDir/root/hermes-agent/gateway/run.py")
+        // New setups write setup_state/incomplete at the start and remove it at
+        // the end, so a half-finished install is not mistaken for a finished
+        // one. Installs made before this marker existed are unaffected.
+        val incomplete = File("$filesDir/setup_state/incomplete").exists()
         return rootfs.exists() && binBash.exists()
-            && python3.exists() && hermes.exists()
+            && python3.exists() && hermes.exists() && !incomplete
     }
 
     fun getBootstrapStatus(): Map<String, Any> {
@@ -73,6 +77,46 @@ class BootstrapManager(
             "complete" to (rootfsExists && binBashExists
                 && python3Exists && hermesExists)
         )
+    }
+
+    // Directories whose files must be executable. Applied while extracting so
+    // no separate full-tree permission walk is needed afterwards.
+    private val execPrefixes = listOf(
+        "usr/bin/", "usr/sbin/", "usr/local/bin/", "usr/local/sbin/",
+        "usr/lib/apt/methods/", "usr/lib/dpkg/", "usr/lib/git-core/",
+        "usr/libexec/", "var/lib/dpkg/info/", "usr/share/debconf/",
+        "bin/", "sbin/",
+    )
+
+    private fun needsExec(name: String): Boolean {
+        if (execPrefixes.any { name.startsWith(it) }) return true
+        return (name.startsWith("usr/lib/") || name.startsWith("lib/")) &&
+            (name.endsWith(".so") || name.contains(".so."))
+    }
+
+    /** Lexical containment check (no symlink resolution), blocks "../" escapes. */
+    private fun safeOutFile(name: String): File? {
+        val root = File(rootfsDir).toPath().normalize()
+        val out = File(rootfsDir, name).toPath().normalize()
+        return if (out.startsWith(root)) out.toFile() else null
+    }
+
+    /** One chmod syscall instead of three File.setXxx calls per file. */
+    private fun applyFileMode(outFile: File, name: String, tarMode: Int) {
+        var mode = (tarMode and 0b111_111_111) or 0b110_100_100
+        if (needsExec(name)) mode = mode or 0b001_001_001
+        try {
+            Os.chmod(outFile.path, mode)
+        } catch (_: Exception) {
+            outFile.setReadable(true, false)
+            outFile.setWritable(true, false)
+            if (mode and 0b001_000_000 != 0) outFile.setExecutable(true, false)
+        }
+    }
+
+    private fun ensureParent(file: File, made: MutableSet<String>) {
+        val parent = file.parentFile ?: return
+        if (made.add(parent.path)) parent.mkdirs()
     }
 
     fun extractRootfs(tarPath: String) {
@@ -93,11 +137,13 @@ class BootstrapManager(
         var fileCount = 0
         var symlinkCount = 0
         var extractionError: Exception? = null
+        val madeDirs = HashSet<String>()
+        val copyBuf = ByteArray(256 * 1024)
 
         try {
             FileInputStream(tarPath).use { fis ->
                 BufferedInputStream(fis, 256 * 1024).use { bis ->
-                    GZIPInputStream(bis).use { gis ->
+                    GZIPInputStream(bis, 256 * 1024).use { gis ->
                         TarArchiveInputStream(gis).use { tis ->
                             var entry: TarArchiveEntry? = tis.nextEntry
                             while (entry != null) {
@@ -111,11 +157,16 @@ class BootstrapManager(
                                     continue
                                 }
 
-                                val outFile = File(rootfsDir, name)
+                                val outFile = safeOutFile(name)
+                                if (outFile == null) {
+                                    // Entry tries to escape the rootfs: skip it.
+                                    entry = tis.nextEntry
+                                    continue
+                                }
 
                                 when {
                                     entry.isDirectory -> {
-                                        outFile.mkdirs()
+                                        if (madeDirs.add(outFile.path)) outFile.mkdirs()
                                     }
                                     entry.isSymbolicLink -> {
                                         // Defer symlinks to phase 2
@@ -129,41 +180,26 @@ class BootstrapManager(
                                         val target = entry.linkName
                                             .removePrefix("./")
                                             .removePrefix("/")
-                                        val targetFile = File(rootfsDir, target)
-                                        outFile.parentFile?.mkdirs()
+                                        val targetFile = safeOutFile(target)
+                                        ensureParent(outFile, madeDirs)
                                         try {
-                                            if (targetFile.exists()) {
+                                            if (targetFile != null && targetFile.exists()) {
                                                 targetFile.copyTo(outFile, overwrite = true)
-                                                if (targetFile.canExecute()) {
-                                                    outFile.setExecutable(true, false)
-                                                }
+                                                applyFileMode(outFile, name, entry.mode)
                                                 fileCount++
                                             }
                                         } catch (_: Exception) {}
                                     }
                                     else -> {
                                         // Regular file
-                                        outFile.parentFile?.mkdirs()
+                                        ensureParent(outFile, madeDirs)
                                         FileOutputStream(outFile).use { fos ->
-                                            val buf = ByteArray(65536)
                                             var len: Int
-                                            while (tis.read(buf).also { len = it } != -1) {
-                                                fos.write(buf, 0, len)
+                                            while (tis.read(copyBuf).also { len = it } != -1) {
+                                                fos.write(copyBuf, 0, len)
                                             }
                                         }
-                                        outFile.setReadable(true, false)
-                                        outFile.setWritable(true, false)
-                                        val mode = entry.mode
-                                        if (mode == 0 || mode and 0b001_001_001 != 0) {
-                                            val path = name.lowercase()
-                                            if (mode and 0b001_001_001 != 0 ||
-                                                path.contains("/bin/") ||
-                                                path.contains("/sbin/") ||
-                                                path.endsWith(".sh") ||
-                                                path.contains("/lib/apt/methods/")) {
-                                                outFile.setExecutable(true, false)
-                                            }
-                                        }
+                                        applyFileMode(outFile, name, entry.mode)
                                         fileCount++
                                     }
                                 }
@@ -504,7 +540,9 @@ class BootstrapManager(
         //    Our Java extraction might not preserve all permission bits correctly
         //    (dpkg error 100 = "Could not exec dpkg" = permission issue).
         //    Recursively ensure all files in bin/sbin/lib dirs are executable.
-        fixBinPermissions()
+        //    NOTE: extractRootfs now applies these rules per file while
+        //    extracting (applyFileMode/needsExec), so the full-tree walk is only
+        //    needed on the .deb path, which calls fixBinPermissions() itself.
     }
 
     /**

@@ -490,7 +490,17 @@ class GatewayService : Service() {
             } catch (_: Exception) {
                 false
             }
-            if (!listening) return false
+            if (!listening) {
+                // The Hermes messaging gateway (Telegram/XMPP/...) does not have
+                // to open a local port. Do not require one: a verified process
+                // that has stayed alive for a short grace period counts as
+                // ready. Otherwise restart would wait the full 120s and report
+                // failure for a gateway that is actually running.
+                val started = inst.processStartTime
+                if (started == 0L || System.currentTimeMillis() - started < 8_000L) {
+                    return false
+                }
+            }
 
             val filesDir = inst.applicationContext.filesDir.absolutePath
             val knownPids = LinkedHashSet<String>()
@@ -618,6 +628,7 @@ class GatewayService : Service() {
     private val maxRestarts = 5
     private var startTime: Long = 0
     private var processStartTime: Long = 0
+    @Volatile private var portWarned = false
     private var uptimeThread: Thread? = null
     private var watchdogThread: Thread? = null
     private var gatewayThread: Thread? = null
@@ -1162,7 +1173,12 @@ class GatewayService : Service() {
                     }
                     // Also check if port is still responding after initial startup
                     if (proc != null && !isPortInUse()) {
-                        emitLog("[WARN] Watchdog: port 18789 not responding")
+                        if (!portWarned) {
+                            portWarned = true
+                            emitLog("[INFO] Watchdog: port 18789 not listening; relying on process liveness")
+                        }
+                    } else {
+                        portWarned = false
                     }
                     Thread.sleep(15_000) // Check every 15s
                 }
