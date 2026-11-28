@@ -69,7 +69,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   Text(
                     _started
                         ? 'Setting up the environment. This may take several minutes.'
-                        : 'Prepare your PayNux environment with Ubuntu, Python, and the Hermes engine.',
+                        : 'Prepare your PayNux environment with Ubuntu and the Hermes engine. Python is installed later from Settings.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -162,9 +162,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     final steps = [
       (1, 'Download Ubuntu rootfs', SetupStep.downloadingRootfs),
       (2, 'Extract rootfs', SetupStep.extractingRootfs),
-      (3, 'Install Python', SetupStep.installingPython),
-      (4, 'Install Hermes Engine', SetupStep.installingHermesAgent),
-      (5, 'Configure environment', SetupStep.configuringEnvironment),
+      (3, 'Install Hermes Engine', SetupStep.installingHermesAgent),
+      (4, 'Configure environment', SetupStep.configuringEnvironment),
     ];
 
     return ListView(
@@ -180,7 +179,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           ),
         if (state.isComplete) ...[
           const ProgressStep(
-            stepNumber: 6,
+            stepNumber: 5,
             label: 'Setup complete!',
             isComplete: true,
           ),

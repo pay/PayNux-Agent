@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../app.dart';
 import '../constants.dart';
+import '../services/bootstrap_service.dart';
 import '../services/native_bridge.dart';
 import '../services/preferences_service.dart';
 import 'setup_wizard_screen.dart';
@@ -25,6 +26,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic> _status = {};
   bool _loading = true;
   bool _storageGranted = false;
+  bool _pythonReady = false;
+  bool _installingPython = false;
+  String _pythonStatus = '';
 
   @override
   void initState() {
@@ -42,10 +46,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final status = await NativeBridge.getBootstrapStatus();
       final batteryOptimized = await NativeBridge.isBatteryOptimized();
       final storageGranted = await NativeBridge.hasStoragePermission();
+      final pythonReady = await BootstrapService().isPythonInstalled();
 
       setState(() {
         _batteryOptimized = batteryOptimized;
         _storageGranted = storageGranted;
+        _pythonReady = pythonReady;
         _arch = arch;
         _prootPath = prootPath;
         _status = status;
@@ -126,9 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 ListTile(
                   title: const Text('Python'),
-                  subtitle: Text(_status['pythonInstalled'] == true
-                      ? 'Installed'
-                      : 'Not installed'),
+                  subtitle: Text(_pythonReady ? 'Installed' : 'Not installed'),
                   leading: const Icon(Icons.code),
                 ),
                 ListTile(
@@ -137,6 +141,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? 'Installed'
                       : 'Not installed'),
                   leading: const Icon(Icons.cloud),
+                ),
+                const Divider(),
+                _sectionHeader(theme, 'PYTHON'),
+                ListTile(
+                  title: Text(_pythonReady ? 'Reinstall Python' : 'Install Python'),
+                  subtitle: Text(_installingPython
+                      ? _pythonStatus
+                      : (_pythonReady
+                          ? 'Python and Hermes dependencies are installed'
+                          : 'Required before the gateway can start. Keep the app open.')),
+                  leading: _installingPython
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.code),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _installingPython ? null : _installPython,
                 ),
                 const Divider(),
                 _sectionHeader(theme, 'MAINTENANCE'),
@@ -216,6 +239,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     final dir = await getApplicationDocumentsDirectory();
     return '${dir.path}/paynux-snapshot.json';
+  }
+
+  Future<void> _installPython() async {
+    if (_status['hermesInstalled'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Install Hermes Engine first (Re-run setup).')),
+      );
+      return;
+    }
+    setState(() {
+      _installingPython = true;
+      _pythonStatus = 'Starting...';
+    });
+    String? error;
+    final service = BootstrapService();
+    try {
+      await service.installPython(onStatus: (m) {
+        if (mounted) setState(() => _pythonStatus = m);
+      });
+    } catch (e) {
+      error = '$e';
+    }
+    final ready = await service.isPythonInstalled();
+    if (!mounted) return;
+    setState(() {
+      _installingPython = false;
+      _pythonReady = ready;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error == null
+            ? 'Python installed'
+            : 'Python install failed: $error'),
+      ),
+    );
   }
 
   Future<void> _exportSnapshot() async {

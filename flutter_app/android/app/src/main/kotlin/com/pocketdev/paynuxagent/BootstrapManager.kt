@@ -52,14 +52,15 @@ class BootstrapManager(
     fun isBootstrapComplete(): Boolean {
         val rootfs = File(rootfsDir)
         val binBash = File("$rootfsDir/bin/bash")
-        val python3 = File("$rootfsDir/usr/bin/python3")
         val hermes = File("$rootfsDir/root/hermes-agent/gateway/run.py")
         // New setups write setup_state/incomplete at the start and remove it at
         // the end, so a half-finished install is not mistaken for a finished
         // one. Installs made before this marker existed are unaffected.
         val incomplete = File("$filesDir/setup_state/incomplete").exists()
+        // Python is no longer part of the first-run setup (it is installed from
+        // Settings), so it is not required here.
         return rootfs.exists() && binBash.exists()
-            && python3.exists() && hermes.exists() && !incomplete
+            && hermes.exists() && !incomplete
     }
 
     fun getBootstrapStatus(): Map<String, Any> {
@@ -74,8 +75,7 @@ class BootstrapManager(
             "python3Installed" to python3Exists,
             "hermesInstalled" to hermesExists,
             "rootfsPath" to rootfsDir,
-            "complete" to (rootfsExists && binBashExists
-                && python3Exists && hermesExists)
+            "complete" to (rootfsExists && binBashExists && hermesExists)
         )
     }
 

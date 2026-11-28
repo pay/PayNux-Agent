@@ -211,6 +211,74 @@ class BootstrapService {
     } catch (_) {}
   }
 
+  /// True when Python and the Hermes dependencies are installed. Installs made
+  /// by the old setup (no setup_state/ folder) count as installed.
+  Future<bool> isPythonInstalled() async {
+    try {
+      final filesDir = await NativeBridge.getFilesDir();
+      if (!File('$filesDir/rootfs/ubuntu/usr/bin/python3').existsSync()) {
+        return false;
+      }
+      final cp = _Checkpoints(filesDir);
+      if (!cp.dir.existsSync()) return true;
+      return cp.has(_Checkpoints.hermesDeps);
+    } catch (_) {
+      return true; // fail open: never block the gateway on a check error
+    }
+  }
+
+  /// Installs Python, the X11 runtime libs and the Hermes dependencies.
+  /// Called from Settings; the first-run setup no longer does this.
+  Future<void> installPython({
+    required void Function(String status) onStatus,
+  }) async {
+    final filesDir = await NativeBridge.getFilesDir();
+    if (!File('$filesDir/rootfs/ubuntu/root/hermes-agent/setup-hermes.sh')
+        .existsSync()) {
+      throw Exception('Hermes Agent is not installed. Run setup first.');
+    }
+    final cp = _Checkpoints(filesDir);
+    try {
+      await NativeBridge.startSetupService();
+    } catch (_) {}
+    try {
+      await NativeBridge.ensureDnsConfig();
+
+      onStatus('Updating package lists...');
+      _updateSetupNotification('Updating package lists...', progress: 10);
+      await NativeBridge.runInProot('apt-get update -y');
+
+      onStatus('Installing Python packages...');
+      _updateSetupNotification('Installing Python packages...', progress: 30);
+      await NativeBridge.runInProot(
+        'apt-get install -y --no-install-recommends '
+        'python3 python3-venv python3-pip '
+        'libx11-6 libxi6 libxkbcommon0 && '
+        'touch /root/.paynux_cua_deps_v1',
+        timeout: 1800,
+      );
+      try {
+        await File('$filesDir/runtime_deps_ok').writeAsString('1');
+      } catch (_) {}
+
+      onStatus('Installing Hermes dependencies (can take a while)...');
+      _updateSetupNotification('Installing Hermes dependencies...', progress: 60);
+      await NativeBridge.runInProot(
+        'cd /root/hermes-agent && '
+        'grep -q UV_LINK_MODE pm/index_config.py || '
+        'sed -i \'/FORWARDED_UV_SETTINGS[[:space:]]*=/a\\    "UV_LINK_MODE",\' pm/index_config.py && '
+        'UV_LINK_MODE=copy ./setup-hermes.sh --runtime-only',
+        timeout: 1800,
+      );
+      await cp.mark(_Checkpoints.hermesDeps);
+      _updateSetupNotification('Python installed', progress: 100);
+      onStatus('Python installed');
+      unawaited(_installOptionalCuaDriver());
+    } finally {
+      _stopSetupService();
+    }
+  }
+
   Future<void> runFullSetup({
     required void Function(SetupState) onProgress,
   }) async {
@@ -297,69 +365,68 @@ class BootstrapService {
         ));
       }
 
-      // ---- 2. Base packages -----------------------------------------------
-      // Permissions are now applied during extraction, so the separate
-      // `chmod -R` PRoot pass is gone; only the dpkg dirs are still needed.
+      // ---- 2. Base packages (only what is needed to fetch Hermes) ----------
       if (cp.has(_Checkpoints.packages)) {
         onProgress(const SetupState(
-          step: SetupStep.installingPython,
-          progress: 1.0,
+          step: SetupStep.installingHermesAgent,
+          progress: 0.2,
           message: 'Base packages already installed',
         ));
       } else {
-        _updateSetupNotification('Updating package lists...', progress: 48);
+        _updateSetupNotification('Fixing rootfs permissions...', progress: 45);
         onProgress(const SetupState(
-          step: SetupStep.installingPython,
-          progress: 0.1,
-          message: 'Updating package lists...',
+          step: SetupStep.installingHermesAgent,
+          progress: 0.0,
+          message: 'Fixing rootfs permissions...',
         ));
         await NativeBridge.runInProot(
-          'mkdir -p /var/lib/dpkg/updates /var/lib/dpkg/triggers && '
-          'apt-get update -y',
+          'chmod -R 755 /usr/bin /usr/sbin /bin /sbin '
+          '/usr/local/bin /usr/local/sbin 2>/dev/null; '
+          'chmod -R +x /usr/lib/apt/ /usr/lib/dpkg/ /usr/libexec/ '
+          '/var/lib/dpkg/info/ /usr/share/debconf/ 2>/dev/null; '
+          'chmod 755 /lib/*/ld-linux-*.so* /usr/lib/*/ld-linux-*.so* 2>/dev/null; '
+          'mkdir -p /var/lib/dpkg/updates /var/lib/dpkg/triggers; '
+          'echo permissions_fixed',
         );
 
-        _updateSetupNotification('Installing base packages...', progress: 52);
+        _updateSetupNotification('Updating package lists...', progress: 50);
         onProgress(const SetupState(
-          step: SetupStep.installingPython,
-          progress: 0.15,
-          message: 'Installing base packages...',
+          step: SetupStep.installingHermesAgent,
+          progress: 0.05,
+          message: 'Updating package lists...',
+        ));
+        await NativeBridge.runInProot('apt-get update -y');
+
+        _updateSetupNotification('Installing git...', progress: 58);
+        onProgress(const SetupState(
+          step: SetupStep.installingHermesAgent,
+          progress: 0.1,
+          message: 'Installing git...',
         ));
         await NativeBridge.runInProot(
           'ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime && '
           'echo "Etc/UTC" > /etc/timezone',
         );
-        // cua-driver links against X11 client libraries; ubuntu-base does not
-        // ship them. Installing them here keeps the fix in the PRoot setup path
-        // without touching or patching the driver binary.
         await NativeBridge.runInProot(
           'apt-get install -y --no-install-recommends '
-          'ca-certificates git python3 python3-venv python3-pip curl wget '
-          'libx11-6 libxi6 libxkbcommon0',
-        );
-        _updateSetupNotification('Verifying CUA runtime libraries...', progress: 56);
-        await NativeBridge.runInProot(
-          "ldconfig -p | grep -q 'libX11.so.6' && "
-          "ldconfig -p | grep -q 'libXi.so.6' && "
-          "ldconfig -p | grep -q 'libxkbcommon.so.0' && "
-          'touch /root/.paynux_cua_deps_v1',
-          timeout: 120,
+          'ca-certificates git curl wget',
         );
         await cp.mark(_Checkpoints.packages);
       }
 
-      // ---- 3. Hermes clone ------------------------------------------------
+      // ---- 3. Hermes Agent (clone only; Python is installed from Settings) --
       final runPy = File('$filesDir/rootfs/ubuntu/root/hermes-agent/gateway/run.py');
       if (cp.has(_Checkpoints.hermesClone) && runPy.existsSync()) {
         onProgress(const SetupState(
           step: SetupStep.installingHermesAgent,
-          progress: 0.5,
+          progress: 0.9,
           message: 'Hermes Agent already cloned',
         ));
       } else {
         _updateSetupNotification('Cloning Hermes Agent...', progress: 70);
         onProgress(const SetupState(
           step: SetupStep.installingHermesAgent,
-          progress: 0.0,
+          progress: 0.3,
           message: 'Cloning Hermes Agent repository...',
         ));
         await NativeBridge.runInProot(
@@ -373,34 +440,10 @@ class BootstrapService {
           'else [ ! -d hermes-agent.previous ] || mv hermes-agent.previous hermes-agent; exit 1; fi',
           timeout: 600,
         );
-        // A fresh clone means dependencies must be (re)installed.
+        // A fresh clone means dependencies must be (re)installed from Settings.
         final deps = File('${cp.dir.path}/${_Checkpoints.hermesDeps}');
         if (deps.existsSync()) await deps.delete();
         await cp.mark(_Checkpoints.hermesClone);
-      }
-
-      // ---- 4. Python dependencies -----------------------------------------
-      if (cp.has(_Checkpoints.hermesDeps)) {
-        onProgress(const SetupState(
-          step: SetupStep.installingHermesAgent,
-          progress: 0.9,
-          message: 'Python dependencies already installed',
-        ));
-      } else {
-        _updateSetupNotification('Installing Python dependencies...', progress: 85);
-        onProgress(const SetupState(
-          step: SetupStep.installingHermesAgent,
-          progress: 0.5,
-          message: 'Installing Python dependencies...',
-        ));
-        await NativeBridge.runInProot(
-          'cd /root/hermes-agent && '
-          'grep -q UV_LINK_MODE pm/index_config.py || '
-          'sed -i \'/FORWARDED_UV_SETTINGS[[:space:]]*=/a\\    "UV_LINK_MODE",\' pm/index_config.py && '
-          'UV_LINK_MODE=copy ./setup-hermes.sh --runtime-only',
-          timeout: 1800,
-        );
-        await cp.mark(_Checkpoints.hermesDeps);
       }
 
       _updateSetupNotification('Verifying installation...', progress: 96);
@@ -418,11 +461,6 @@ class BootstrapService {
         message: 'Hermes Agent installed',
       ));
 
-      // Mark finished BEFORE the optional extras so a slow/failed extra can
-      // never leave the app stuck in "setup required".
-      try {
-        await File('$filesDir/runtime_deps_ok').writeAsString('1');
-      } catch (_) {}
       await cp.markComplete();
 
       _updateSetupNotification('Setup complete!', progress: 100);
@@ -436,12 +474,8 @@ class BootstrapService {
       onProgress(const SetupState(
         step: SetupStep.complete,
         progress: 1.0,
-        message: 'Setup complete! Ready to start the agent.',
+        message: 'Setup complete! Open Settings > Install Python before starting the gateway.',
       ));
-
-      // cua-driver is an optional extra: install it in the background,
-      // best-effort, instead of blocking setup for up to 15 minutes.
-      unawaited(_installOptionalCuaDriver());
     } on DioException catch (e) {
       _stopSetupService();
       onProgress(SetupState(

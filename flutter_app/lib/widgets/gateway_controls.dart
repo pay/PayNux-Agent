@@ -6,6 +6,7 @@ import '../app.dart';
 import '../constants.dart';
 import '../models/gateway_state.dart';
 import '../providers/gateway_provider.dart';
+import '../services/bootstrap_service.dart';
 import '../screens/logs_screen.dart';
 
 class GatewayControls extends StatelessWidget {
@@ -90,7 +91,21 @@ class GatewayControls extends StatelessWidget {
                   children: [
                     if (state.isStopped || state.status == GatewayStatus.error)
                       FilledButton.icon(
-                        onPressed: () => provider.start(),
+                        onPressed: () async {
+                          final ready = await BootstrapService().isPythonInstalled();
+                          if (!context.mounted) return;
+                          if (!ready) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Python is not installed yet. Open Settings > Install Python.',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                          provider.start();
+                        },
                         icon: const Icon(Icons.play_arrow),
                         label: const Text('Start Gateway'),
                       ),

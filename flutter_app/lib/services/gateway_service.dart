@@ -98,10 +98,7 @@ class GatewayService {
         logs: [..._state.logs, _ts('[ERROR] Failed to start: $e')],
       ));
     } finally {
-      // Always release our own flag. Guarding on the generation left the flag
-      // stuck forever when a newer operation superseded this one, and every
-      // later tap was then silently ignored by the early return above.
-      _startInProgress = false;
+      if (generation == _operationGeneration) _startInProgress = false;
     }
   }
 
@@ -135,7 +132,7 @@ class GatewayService {
         errorMessage: 'Failed to stop: $e',
       ));
     } finally {
-      _stopInProgress = false;
+      if (generation == _operationGeneration) _stopInProgress = false;
     }
   }
 
@@ -158,29 +155,11 @@ class GatewayService {
     ));
 
     try {
-      // Re-attach to the log stream BEFORE the native restart so the stop /
-      // relaunch logs are visible while it runs.
-      _subscribeLogs();
       final restarted = await NativeBridge.restartGateway();
       // A Stop that arrived while native restart was in flight wins: do not
       // re-arm health checks or overwrite the stopped state.
       if (generation != _operationGeneration) return;
       if (!restarted) {
-        // Verification can fail even though the new process is fine. Never
-        // kill a healthy gateway just because it was not confirmed.
-        final alive = await NativeBridge.isGatewayRunning();
-        if (generation != _operationGeneration) return;
-        if (alive) {
-          _updateState(_state.copyWith(
-            logs: [
-              ..._state.logs,
-              _ts('[WARN] Restart not fully verified, but gateway process is alive'),
-            ],
-          ));
-          _startHealthCheck();
-          _startingAt = DateTime.now();
-          return;
-        }
         _updateState(_state.copyWith(
           logs: [
             ..._state.logs,
@@ -194,6 +173,7 @@ class GatewayService {
         await start();
         return;
       }
+      _subscribeLogs();
       _startHealthCheck();
       _startingAt = DateTime.now();
     } catch (e) {
@@ -203,7 +183,7 @@ class GatewayService {
         logs: [..._state.logs, _ts('[ERROR] Failed to restart: $e')],
       ));
     } finally {
-      _restartInProgress = false;
+      if (generation == _operationGeneration) _restartInProgress = false;
     }
   }
 
